@@ -1,4 +1,4 @@
-Source: neutron-lbass
+Source: neutron-lbaas
 Section: net
 Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
@@ -49,7 +49,7 @@ Homepage: http://github.com/openstack/neutron-lbaas
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/neutron-lbaas.git;a=summary
 Vcs-Git: git://anonscm.debian.org/openstack/neutron-lbaas.git
 
-Package: python-neutron-lbass
+Package: python-neutron-lbaas
 Architecture: all
 Section: python
 Pre-Depends: dpkg (>= 1.15.6~)
@@ -81,7 +81,7 @@ Description: OpenStack virtual network service - Python library
  .
  This package provides the Python library.
 
-Package: neutron-lbass-agent
+Package: neutron-lbaas-agent
 Architecture: all
 Pre-Depends: dpkg (>= 1.15.6~)
 Depends: adduser,
