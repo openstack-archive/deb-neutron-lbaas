@@ -1,5 +1,5 @@
-neutron-lbaas (2015.1~b2-1) UNRELEASED; urgency=low
+neutron-lbaas (2015.1~b2+git20150317+811be1b7ab-1) UNRELEASED; urgency=medium
 
   * Initial release. (Closes: #777755)
 
- -- Thomas Goirand <zigo@debian.org>  Wed, 11 Feb 2015 17:13:58 +0100
+ -- Thomas Goirand <zigo@debian.org>  Tue, 17 Mar 2015 16:02:15 +0100
