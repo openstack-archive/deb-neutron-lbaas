@@ -20,10 +20,10 @@ from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.db import servicetype_db as st_db
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from oslo_db import exception
+from oslo_log import log as logging
 from oslo_utils import excutils
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -623,6 +623,8 @@ class LoadBalancerPluginDb(loadbalancer.LoadBalancerPluginBase,
     def create_pool_health_monitor(self, context, health_monitor, pool_id):
         monitor_id = health_monitor['health_monitor']['id']
         with context.session.begin(subtransactions=True):
+            # To make sure health_monitor exist.
+            self._get_resource(context, HealthMonitor, monitor_id)
             assoc_qry = context.session.query(PoolMonitorAssociation)
             assoc = assoc_qry.filter_by(pool_id=pool_id,
                                         monitor_id=monitor_id).first()

@@ -16,14 +16,15 @@
 from neutron.api.v2 import attributes
 from neutron.db import common_db_mixin as base_db
 from neutron import manager
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 from oslo_db import exception
+from oslo_log import log as logging
 from oslo_utils import excutils
 from oslo_utils import uuidutils
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
+from neutron_lbaas import agent_scheduler
 from neutron_lbaas.db.loadbalancer import models
 from neutron_lbaas.extensions import loadbalancerv2
 from neutron_lbaas.services.loadbalancer import constants as lb_const
@@ -33,7 +34,8 @@ from neutron_lbaas.services.loadbalancer import data_models
 LOG = logging.getLogger(__name__)
 
 
-class LoadBalancerPluginDbv2(base_db.CommonDbMixin):
+class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
+                             agent_scheduler.LbaasAgentSchedulerDbMixin):
     """Wraps loadbalancer with SQLAlchemy models.
 
     A class that wraps the implementation of the Neutron loadbalancer
@@ -62,6 +64,8 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin):
                                       models.SessionPersistenceV2)):
                     raise loadbalancerv2.EntityNotFound(name=model.NAME, id=id)
                 ctx.reraise = True
+        # always refresh the resource to get up-to-date models
+        context.session.refresh(resource)
         return resource
 
     def _resource_exists(self, context, model, id):
@@ -316,6 +320,11 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin):
         return models.SessionPersistenceV2(**session_info)
 
     def _update_pool_session_persistence(self, context, pool_id, info):
+        # removing these keys as it is possible that they are passed in and
+        # their existence will cause issues bc they are not acceptable as
+        # dictionary values
+        info.pop('pool', None)
+        info.pop('pool_id', None)
         pool = self._get_resource(context, models.PoolV2, pool_id)
         with context.session.begin(subtransactions=True):
             # Update sessionPersistence table
@@ -372,9 +381,6 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin):
             pool_db = self._get_resource(context, models.PoolV2, id)
             hm_id = pool.get('healthmonitor_id')
             if hm_id:
-                if pool_db.healthmonitor and hm_id:
-                    raise loadbalancerv2.AttributeIDImmutable(
-                        attribute='healthmonitor_id')
                 if not self._resource_exists(context, models.HealthMonitorV2,
                                              hm_id):
                     raise loadbalancerv2.EntityNotFound(
@@ -462,10 +468,20 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin):
 
     def create_healthmonitor_on_pool(self, context, pool_id, healthmonitor):
         with context.session.begin(subtransactions=True):
-            hm_dm = self.create_healthmonitor(context, healthmonitor)
-            self.update_pool(context, pool_id, {'healthmonitor_id': hm_dm.id})
+            hm_db = self.create_healthmonitor(context, healthmonitor)
+            pool = self.get_pool(context, pool_id)
+            # do not want listener, members, or healthmonitor in dict
+            pool_dict = pool.to_dict(listener=False, members=False,
+                                     healthmonitor=False)
+            # have to rename sessionpersistence key to session_persistence
+            # for compatibility with what is acceptable by the extension
+            pool_dict['session_persistence'] = pool_dict.get(
+                'sessionpersistence')
+            del pool_dict['sessionpersistence']
+            pool_dict['healthmonitor_id'] = hm_db.id
+            self.update_pool(context, pool_id, pool_dict)
             hm_db = self._get_resource(context, models.HealthMonitorV2,
-                                       hm_dm.id)
+                                       hm_db.id)
         return data_models.HealthMonitor.from_sqlalchemy_model(hm_db)
 
     def create_healthmonitor(self, context, healthmonitor):
@@ -505,7 +521,6 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin):
         with context.session.begin(subtransactions=True):
             lb_db = self._get_resource(context, models.LoadBalancer,
                                        loadbalancer_id)
-            self.assert_modification_allowed(lb_db)
             lb_db.stats = self._create_loadbalancer_stats(context,
                                                           loadbalancer_id,
                                                           data=stats_data)

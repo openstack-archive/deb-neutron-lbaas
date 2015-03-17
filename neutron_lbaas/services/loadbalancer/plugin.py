@@ -18,16 +18,19 @@ from neutron.common import exceptions as n_exc
 from neutron import context as ncontext
 from neutron.db import servicetype_db as st_db
 from neutron.i18n import _LI, _LE
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 from neutron.services import provider_configuration as pconf
 from neutron.services import service_base
+from oslo_config import cfg
+from oslo_log import log as logging
 from oslo_utils import excutils
 
+from neutron_lbaas import agent_scheduler as agent_scheduler_v2
 from neutron_lbaas.db.loadbalancer import loadbalancer_db as ldb
 from neutron_lbaas.db.loadbalancer import loadbalancer_dbv2 as ldbv2
 from neutron_lbaas.db.loadbalancer import models
-from neutron_lbaas.extensions import loadbalancer
+from neutron_lbaas.extensions import lbaas_agentschedulerv2
+from neutron_lbaas.extensions import loadbalancer as lb_ext
 from neutron_lbaas.extensions import loadbalancerv2
 from neutron_lbaas.services.loadbalancer import agent_scheduler
 from neutron_lbaas.services.loadbalancer import constants as lb_const
@@ -35,16 +38,15 @@ from neutron_lbaas.services.loadbalancer import constants as lb_const
 LOG = logging.getLogger(__name__)
 
 
-def verify_lbaas_mutual_exclusion(other_service_type, plugin):
-    """Verifies lbaas v1 and lbaas v2 are cannot be active concurrently."""
-    try:
-        service_base.load_drivers(other_service_type, plugin)
-    except SystemExit:
-        pass
-    else:
-        msg = (_LE("Cannot have service providers %{v1}s and %{v2}s active at "
-                   "the same time!") % {'v1': constants.LOADBALANCER,
-                                        'v2': constants.LOADBALANCERV2})
+def verify_lbaas_mutual_exclusion():
+    """Verifies lbaas v1 and lbaas v2 cannot be active concurrently."""
+    plugins = set([LoadBalancerPlugin.__name__, LoadBalancerPluginv2.__name__])
+    cfg_sps = set([sp.split('.')[-1] for sp in cfg.CONF.service_plugins])
+
+    if len(plugins.intersection(cfg_sps)) >= 2:
+        msg = _LE("Cannot have service plugins %(v1)s and %(v2)s active at "
+                  "the same time!") % {'v1': LoadBalancerPlugin.__name__,
+                                       'v2': LoadBalancerPluginv2.__name__}
         LOG.error(msg)
         raise SystemExit(1)
 
@@ -78,7 +80,7 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
 
         # NOTE(blogan): this method MUST be called after
         # service_base.load_drivers to correctly verify
-        verify_lbaas_mutual_exclusion(constants.LOADBALANCERV2, self)
+        verify_lbaas_mutual_exclusion()
 
         # we're at the point when extensions are not loaded yet
         # so prevent policy from being loaded
@@ -166,10 +168,10 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
         # This validation is because the new API version also has a resource
         # called pool and these attributes have to be optional in the old API
         # so they are not required attributes of the new.  Its complicated.
-        if (pool['pool']['lb_method'] == attrs.ATTR_NOT_SPECIFIED):
+        if pool['pool']['lb_method'] == attrs.ATTR_NOT_SPECIFIED:
             raise loadbalancerv2.RequiredAttributeNotSpecified(
                 attr_name='lb_method')
-        if (pool['pool']['subnet_id'] == attrs.ATTR_NOT_SPECIFIED):
+        if pool['pool']['subnet_id'] == attrs.ATTR_NOT_SPECIFIED:
             raise loadbalancerv2.RequiredAttributeNotSpecified(
                 attr_name='subnet_id')
 
@@ -186,13 +188,13 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
         driver = self.drivers[provider_name]
         try:
             driver.create_pool(context, p)
-        except loadbalancer.NoEligibleBackend:
+        except lb_ext.NoEligibleBackend:
             # that should catch cases when backend of any kind
             # is not available (agent, appliance, etc)
             self.update_status(context, ldb.Pool,
                                p['id'], constants.ERROR,
                                "No eligible backend")
-            raise loadbalancer.NoEligibleBackend(pool_id=p['id'])
+            raise lb_ext.NoEligibleBackend(pool_id=p['id'])
         return p
 
     def update_pool(self, context, id, pool):
@@ -262,7 +264,7 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
 
     def _validate_hm_parameters(self, delay, timeout):
         if delay < timeout:
-            raise loadbalancer.DelayOrTimeoutInvalid()
+            raise lb_ext.DelayOrTimeoutInvalid()
 
     def create_health_monitor(self, context, health_monitor):
         new_hm = health_monitor['health_monitor']
@@ -356,8 +358,7 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
                 provider=provider, service_type=constants.LOADBALANCER)
 
 
-class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
-                           agent_scheduler.LbaasAgentSchedulerDbMixin):
+class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
     """Implementation of the Neutron Loadbalancer Service Plugin.
 
     This class manages the workflow of LBaaS request/response.
@@ -365,13 +366,11 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
     loadbalancer_db.LoadBalancerPluginDb.
     """
     supported_extension_aliases = ["lbaasv2",
-                                   "lbaas_agent_scheduler",
+                                   "lbaas_agent_schedulerv2",
                                    "service-type"]
 
-    # lbaas agent notifiers to handle agent update operations;
-    # can be updated by plugin drivers while loading;
-    # will be extracted by neutron manager when loading service plugins;
-    agent_notifiers = {}
+    agent_notifiers = (
+        agent_scheduler_v2.LbaasAgentSchedulerDbMixin.agent_notifiers)
 
     def __init__(self):
         """Initialization for the loadbalancer service plugin."""
@@ -386,7 +385,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
 
         # NOTE(blogan): this method MUST be called after
         # service_base.load_drivers to correctly verify
-        verify_lbaas_mutual_exclusion(constants.LOADBALANCER, self)
+        verify_lbaas_mutual_exclusion()
 
         # we're at the point when extensions are not loaded yet
         # so prevent policy from being loaded
@@ -403,9 +402,9 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         """
         loadbalancers = self.db.get_loadbalancers(context)
         lost_providers = set(
-            [loadbalancer.provider.provider_name
-             for loadbalancer in loadbalancers
-             if loadbalancer.provider.provider_name not in provider_names])
+            [lb.provider.provider_name
+             for lb in loadbalancers
+             if lb.provider.provider_name not in provider_names])
         # resources are left without provider - stop the service
         if lost_providers:
             msg = _LE("Delete associated load balancers before "
@@ -422,9 +421,9 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                                     "%s") % provider)
 
     def _get_driver_for_loadbalancer(self, context, loadbalancer_id):
-        loadbalancer = self.db.get_loadbalancer(context, loadbalancer_id)
+        lb = self.db.get_loadbalancer(context, loadbalancer_id)
         try:
-            return self.drivers[loadbalancer.provider.provider_name]
+            return self.drivers[lb.provider.provider_name]
         except KeyError:
             raise n_exc.Invalid(
                 _LE("Error retrieving provider for load balancer. Possible "
@@ -455,6 +454,10 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                 driver_method(context, old_db_entity, db_entity)
             else:
                 driver_method(context, db_entity)
+        # catching and reraising agent issues
+        except (lbaas_agentschedulerv2.NoEligibleLbaasAgent,
+                lbaas_agentschedulerv2.NoActiveLbaasAgent) as no_agent:
+            raise no_agent
         except Exception:
             LOG.exception(_LE("There was an error in the driver"))
             self._handle_driver_error(context, db_entity)
@@ -474,67 +477,20 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
             return
         if sp_info['type'] == lb_const.SESSION_PERSISTENCE_APP_COOKIE:
             if not sp_info.get('cookie_name'):
-                raise ValueError(_LE("'cookie_name' should be specified for %s"
-                                     " session persistence.") %
-                                 sp_info['type'])
+                raise loadbalancerv2.SessionPersistenceConfigurationInvalid(
+                    msg="'cookie_name' should be specified for %s"
+                        " session persistence." % sp_info['type'])
         else:
             if 'cookie_name' in sp_info:
-                raise ValueError(_LE("'cookie_name' is not allowed for %s"
-                                     " session persistence") % sp_info['type'])
+                raise loadbalancerv2.SessionPersistenceConfigurationInvalid(
+                    msg="'cookie_name' is not allowed for %s"
+                        " session persistence" % sp_info['type'])
 
     def get_plugin_type(self):
         return constants.LOADBALANCERV2
 
     def get_plugin_description(self):
         return "Neutron LoadBalancer Service Plugin v2"
-
-    def _clean_nested_body(self, entity, nested_entities, exclude=None,
-                           fields=None):
-        """Turns a data model into a dictionary and strips nested dict attrs.
-
-        Converts a data model or list of data models into a dictionary, but
-        converts only a small subset of nested childrens' attributes.
-
-        :param entity: data model or list of data model to convert
-        :param nested_entities: list of names of children object to convert
-        :returns: dict
-        """
-
-        exclude = exclude or []
-
-        def entity_to_dict(entity):
-            kwargs = dict((nested_entity, True)
-                          for nested_entity in nested_entities)
-            ret_dict = entity.to_dict(**kwargs)
-            ret_dict = dict(((key, item) for key, item in ret_dict.items()
-                             if key not in exclude))
-            return ret_dict
-
-        def clean(nested_entity_item):
-            return dict(((key, item) for key, item in
-                         nested_entity_item.items() if key == 'id'))
-
-        ret_entity = None
-        if isinstance(entity, list):
-            ret_entity = []
-            for item in entity:
-                item_dict = entity_to_dict(item)
-                for nested_entity in nested_entities:
-                    item_dict[nested_entity] = [clean(item) for item in
-                                                item_dict.get(nested_entity)]
-                if fields:
-                    ret_entity.append(self.db._fields(item_dict, fields))
-                else:
-                    ret_entity.append(item_dict)
-        elif hasattr(entity, 'to_dict'):
-            ret_dict = entity_to_dict(entity)
-            for nested_entity in nested_entities:
-                ret_dict[nested_entity] = [clean(item) for item in
-                                           ret_dict.get(nested_entity)]
-            ret_entity = ret_dict
-            if fields:
-                ret_entity = self.db._fields(ret_dict, fields)
-        return ret_entity
 
     def create_loadbalancer(self, context, loadbalancer):
         loadbalancer = loadbalancer.get('loadbalancer')
@@ -547,8 +503,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         driver = self.drivers[provider_name]
         self._call_driver_operation(
             context, driver.load_balancer.create, lb_db)
-        return self._clean_nested_body(
-            self.db.get_loadbalancer(context, lb_db.id), ['listeners'])
+        return self.db.get_loadbalancer(context, lb_db.id).to_api_dict()
 
     def update_loadbalancer(self, context, id, loadbalancer):
         loadbalancer = loadbalancer.get('loadbalancer')
@@ -560,14 +515,13 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                 context, id, loadbalancer)
         except Exception as exc:
             self.db.update_status(context, models.LoadBalancer, id,
-                                  old_lb.status)
+                                  old_lb.provisioning_status)
             raise exc
         driver = self._get_driver_for_provider(old_lb.provider.provider_name)
         self._call_driver_operation(context,
                                     driver.load_balancer.update,
                                     updated_lb, old_db_entity=old_lb)
-        return self._clean_nested_body(
-            self.db.get_loadbalancer(context, id), ['listeners'])
+        return self.db.get_loadbalancer(context, id).to_api_dict()
 
     def delete_loadbalancer(self, context, id):
         old_lb = self.db.get_loadbalancer(context, id)
@@ -579,17 +533,16 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         self.db.test_and_set_status(context, models.LoadBalancer, id,
                                     constants.PENDING_DELETE)
         driver = self._get_driver_for_provider(old_lb.provider.provider_name)
+        db_lb = self.db.get_loadbalancer(context, id)
         self._call_driver_operation(
-            context, driver.load_balancer.delete, old_lb)
+            context, driver.load_balancer.delete, db_lb)
 
     def get_loadbalancer(self, context, id, fields=None):
-        return self._clean_nested_body(self.db.get_loadbalancer(context, id),
-                                       ['listeners'], fields=fields)
+        return self.db.get_loadbalancer(context, id).to_api_dict()
 
     def get_loadbalancers(self, context, filters=None, fields=None):
-        return self._clean_nested_body(
-            self.db.get_loadbalancers(context, filters=filters),
-            ['listeners'], fields=fields)
+        return [listener.to_api_dict() for listener in
+                self.db.get_loadbalancers(context, filters=filters)]
 
     def create_listener(self, context, listener):
         listener = listener.get('listener')
@@ -608,10 +561,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         self._call_driver_operation(
             context, driver.listener.create, listener_db)
 
-        return self._clean_nested_body(
-            self.db.get_listener(context, listener_db.id),
-            ['loadbalancers'],
-            exclude=['provisioning_status', 'operating_status'],)
+        return self.db.get_listener(context, listener_db.id).to_api_dict()
 
     def update_listener(self, context, id, listener):
         listener = listener.get('listener')
@@ -633,10 +583,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
             listener_db,
             old_db_entity=old_listener)
 
-        return self._clean_nested_body(
-            self.db.get_listener(context, listener_db.id),
-            ['loadbalancers'],
-            exclude=['provisioning_status', 'operating_status'])
+        return self.db.get_listener(context, id).to_api_dict()
 
     def delete_listener(self, context, id):
         old_listener = self.db.get_listener(context, id)
@@ -655,18 +602,11 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
             context, driver.listener.delete, listener_db)
 
     def get_listener(self, context, id, fields=None):
-        return self._clean_nested_body(
-            self.db.get_listener(context, id),
-            ['loadbalancers'],
-            exclude=['provisioning_status', 'operating_status'],
-            fields=fields)
+        return self.db.get_listener(context, id).to_api_dict()
 
     def get_listeners(self, context, filters=None, fields=None):
-        return self._clean_nested_body(
-            self.db.get_listeners(context, filters=filters),
-            ['loadbalancers'],
-            exclude=['provisioning_status', 'operating_status'],
-            fields=fields)
+        return [listener.to_api_dict() for listener in self.db.get_listeners(
+            context, filters=filters)]
 
     def create_pool(self, context, pool):
         pool = pool.get('pool')
@@ -690,10 +630,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         driver = self._get_driver_for_loadbalancer(
             context, db_pool.listener.loadbalancer_id)
         self._call_driver_operation(context, driver.pool.create, db_pool)
-        return self._clean_nested_body(
-            self.db.get_pool(context, db_pool.id),
-            ['listeners', 'members'],
-            exclude=['provisioning_status', 'operating_status'])
+        return self.db.get_pool(context, db_pool.id).to_api_dict()
 
     def update_pool(self, context, id, pool):
         pool = pool.get('pool')
@@ -716,10 +653,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                                     updated_pool,
                                     old_db_entity=old_pool)
 
-        return self._clean_nested_body(
-            self.db.get_pool(context, id),
-            ['listeners', 'members'],
-            exclude=['provisioning_status', 'operating_status'])
+        return self.db.get_pool(context, id).to_api_dict()
 
     def delete_pool(self, context, id):
         self.db.test_and_set_status(context, models.PoolV2, id,
@@ -731,17 +665,11 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         self._call_driver_operation(context, driver.pool.delete, db_pool)
 
     def get_pools(self, context, filters=None, fields=None):
-        return self._clean_nested_body(
-            self.db.get_pools(context, filters=filters),
-            ['listeners', 'members'],
-            exclude=['provisioning_status', 'operating_status'],
-            fields=fields)
+        return [pool.to_api_dict() for pool in self.db.get_pools(
+            context, filters=filters)]
 
     def get_pool(self, context, id, fields=None):
-        return self._clean_nested_body(self.db.get_pool(context, id),
-                                       ['listeners', 'members'],
-                                       exclude=['provisioning_status',
-                                                'operating_status'])
+        return self.db.get_pool(context, id).to_api_dict()
 
     def _check_pool_exists(self, context, pool_id):
         if not self.db._resource_exists(context, models.PoolV2, pool_id):
@@ -768,10 +696,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                                     driver.member.create,
                                     member_db)
 
-        return self._clean_nested_body(
-            self.db.get_pool_member(context, member_db.id),
-            [],
-            exclude=['provisioning_status', 'operating_status'])
+        return self.db.get_pool_member(context, member_db.id).to_api_dict()
 
     def update_pool_member(self, context, id, pool_id, member):
         self._check_pool_exists(context, pool_id)
@@ -793,10 +718,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                                     updated_member,
                                     old_db_entity=old_member)
 
-        return self._clean_nested_body(
-            self.db.get_pool_member(context, id),
-            [],
-            exclude=['provisioning_status', 'operating_status'])
+        return self.db.get_pool_member(context, id).to_api_dict()
 
     def delete_pool_member(self, context, id, pool_id):
         self._check_pool_exists(context, pool_id)
@@ -812,18 +734,12 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
 
     def get_pool_members(self, context, pool_id, filters=None, fields=None):
         self._check_pool_exists(context, pool_id)
-        return self._clean_nested_body(
-            self.db.get_pool_members(context, filters=filters),
-            [],
-            exclude=['provisioning_status', 'operating_status'],
-            fields=fields)
+        return [mem.to_api_dict() for mem in self.db.get_pool_members(
+            context, filters=filters)]
 
     def get_pool_member(self, context, id, pool_id, fields=None):
         self._check_pool_exists(context, pool_id)
-        return self._clean_nested_body(
-            self.db.get_pool_member(context, id),
-            [],
-            exclude=['provisioning_status', 'operating_status'])
+        return self.db.get_pool_member(context, id).to_api_dict()
 
     def _check_pool_already_has_healthmonitor(self, context, pool_id):
         pool = self.db.get_pool(context, pool_id)
@@ -852,10 +768,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
         self._call_driver_operation(context,
                                     driver.health_monitor.create,
                                     db_hm)
-        return self._clean_nested_body(
-            self.db.get_healthmonitor(context, db_hm.id),
-            ['pools'],
-            exclude=['provisioning_status'])
+        return self.db.get_healthmonitor(context, db_hm.id).to_api_dict()
 
     def update_healthmonitor(self, context, id, healthmonitor):
         healthmonitor = healthmonitor.get('healthmonitor')
@@ -877,10 +790,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
                                     updated_hm,
                                     old_db_entity=old_hm)
 
-        return self._clean_nested_body(
-            self.db.get_healthmonitor(context, updated_hm.id),
-            ['pools'],
-            exclude=['provisioning_status'])
+        return self.db.get_healthmonitor(context, updated_hm.id).to_api_dict()
 
     def delete_healthmonitor(self, context, id):
         self.db.test_and_set_status(context, models.HealthMonitorV2, id,
@@ -893,23 +803,16 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
             context, driver.health_monitor.delete, db_hm)
 
     def get_healthmonitor(self, context, id, fields=None):
-        return self._clean_nested_body(
-            self.db.get_healthmonitor(context, id),
-            ['pools'],
-            exclude=['provisioning_status'],
-            fields=fields)
+        return self.db.get_healthmonitor(context, id).to_api_dict()
 
     def get_healthmonitors(self, context, filters=None, fields=None):
-        return self._clean_nested_body(
-            self.db.get_healthmonitors(context, filters=filters),
-            ['pools'],
-            exclude=['provisioning_status'],
-            fields=fields)
+        return [hm.to_api_dict() for hm in self.db.get_healthmonitors(
+            context, filters=filters)]
 
     def stats(self, context, loadbalancer_id):
-        loadbalancer = self.db.get_loadbalancer(context, loadbalancer_id)
+        lb = self.db.get_loadbalancer(context, loadbalancer_id)
         driver = self._get_driver_for_loadbalancer(context, loadbalancer_id)
-        stats_data = driver.load_balancer.stats(context, loadbalancer)
+        stats_data = driver.load_balancer.stats(context, lb)
         # if we get something from the driver -
         # update the db and return the value from db
         # else - return what we have in db
@@ -917,7 +820,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
             self.db.update_loadbalancer_stats(context, loadbalancer_id,
                                               stats_data)
         db_stats = self.db.stats(context, loadbalancer_id)
-        return {'stats': db_stats.to_dict()}
+        return {'stats': db_stats.to_api_dict()}
 
     def validate_provider(self, provider):
         if provider not in self.drivers:
@@ -927,14 +830,14 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2,
     def statuses(self, context, loadbalancer_id):
         PROV = 'provisioning_status'
         OPER = 'operating_status'
-        loadbalancer = self.db.get_loadbalancer(context, loadbalancer_id)
+        lb = self.db.get_loadbalancer(context, loadbalancer_id)
         statuses = {'statuses': {}}
         statuses['statuses']['loadbalancer'] = {
-            PROV: getattr(loadbalancer, PROV),
-            OPER: getattr(loadbalancer, OPER)
+            PROV: getattr(lb, PROV),
+            OPER: getattr(lb, OPER)
         }
         listener_statuses = []
-        for lindex, listener in enumerate(loadbalancer.listeners):
+        for lindex, listener in enumerate(lb.listeners):
             listener_statuses.append({
                 'id': listener.id,
                 PROV: getattr(listener, PROV),

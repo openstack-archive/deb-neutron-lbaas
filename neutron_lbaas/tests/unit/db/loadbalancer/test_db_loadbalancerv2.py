@@ -15,6 +15,7 @@
 
 import contextlib
 
+import mock
 from neutron.api import extensions
 from neutron.api.v2 import attributes
 from neutron.common import config
@@ -41,8 +42,8 @@ DB_LB_PLUGIN_CLASS = (
     "neutron_lbaas.services.loadbalancer."
     "plugin.LoadBalancerPluginv2"
 )
-NOOP_DRIVER_CLASS = ('neutron_lbaas.services.loadbalancer.drivers.'
-                     'logging_noop.driver.LoggingNoopLoadBalancerDriver')
+NOOP_DRIVER_CLASS = ('neutron_lbaas.drivers.logging_noop.driver.'
+                     'LoggingNoopLoadBalancerDriver')
 
 extensions_path = ':'.join(neutron_lbaas.extensions.__path__)
 
@@ -324,6 +325,13 @@ class LbaasPluginDbTestCase(LbaasTestMixin, base.NeutronDbPluginV2TestCase):
             app = config.load_paste_app('extensions_test_app')
             self.ext_api = extensions.ExtensionMiddleware(app, ext_mgr=ext_mgr)
 
+        get_lbaas_agent_patcher = mock.patch(
+            'neutron_lbaas.agent_scheduler'
+            '.LbaasAgentSchedulerDbMixin.get_agent_hosting_loadbalancer')
+        mock_lbaas_agent = mock.MagicMock()
+        get_lbaas_agent_patcher.start().return_value = mock_lbaas_agent
+        mock_lbaas_agent.__getitem__.return_value = {'host': 'host'}
+
         self._subnet_id = _subnet_id
 
     def _update_loadbalancer_api(self, lb_id, data):
@@ -417,7 +425,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
             'provisioning_status': constants.ACTIVE,
             'operating_status': lb_const.ONLINE,
             'tenant_id': self._tenant_id,
-            'listeners': []
+            'listeners': [],
+            'provider': 'lbaas'
         }
 
         expected.update(extras)
@@ -431,6 +440,7 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                 for k in ('id', 'vip_address', 'vip_subnet_id'):
                     self.assertTrue(lb['loadbalancer'].get(k, None))
 
+                expected['vip_port_id'] = lb['loadbalancer']['vip_port_id']
                 actual = dict((k, v)
                               for k, v in lb['loadbalancer'].items()
                               if k in expected)
@@ -453,10 +463,13 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                            'admin_state_up': False,
                            'provisioning_status': constants.ACTIVE,
                            'operating_status': lb_const.ONLINE,
-                           'listeners': []}
+                           'listeners': [],
+                           'provider': 'lbaas'}
         with self.subnet() as subnet:
             expected_values['vip_subnet_id'] = subnet['subnet']['id']
             with self.loadbalancer(subnet=subnet) as loadbalancer:
+                expected_values['vip_port_id'] = (
+                    loadbalancer['loadbalancer']['vip_port_id'])
                 loadbalancer_id = loadbalancer['loadbalancer']['id']
                 data = {'loadbalancer': {'name': name,
                                          'description': description,
@@ -497,7 +510,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                            'admin_state_up': True,
                            'provisioning_status': constants.ACTIVE,
                            'operating_status': lb_const.ONLINE,
-                           'listeners': []}
+                           'listeners': [],
+                           'provider': 'lbaas'}
         with self.subnet() as subnet:
             vip_subnet_id = subnet['subnet']['id']
             expected_values['vip_subnet_id'] = vip_subnet_id
@@ -506,6 +520,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                                    vip_address=vip_address) as lb:
                 lb_id = lb['loadbalancer']['id']
                 expected_values['id'] = lb_id
+                expected_values['vip_port_id'] = (
+                    lb['loadbalancer']['vip_port_id'])
                 resp, body = self._get_loadbalancer_api(lb_id)
                 for k in expected_values:
                     self.assertEqual(body['loadbalancer'][k],
@@ -521,7 +537,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                            'admin_state_up': True,
                            'provisioning_status': constants.ACTIVE,
                            'operating_status': lb_const.ONLINE,
-                           'listeners': []}
+                           'listeners': [],
+                           'provider': 'lbaas'}
         with self.subnet() as subnet:
             vip_subnet_id = subnet['subnet']['id']
             expected_values['vip_subnet_id'] = vip_subnet_id
@@ -530,6 +547,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                                    vip_address=vip_address) as lb:
                 lb_id = lb['loadbalancer']['id']
                 expected_values['id'] = lb_id
+                expected_values['vip_port_id'] = (
+                    lb['loadbalancer']['vip_port_id'])
                 resp, body = self._list_loadbalancers_api()
                 self.assertEqual(len(body['loadbalancers']), 1)
                 for k in expected_values:
@@ -1033,6 +1052,23 @@ class LbaasPoolTests(PoolTestBase):
         with testtools.ExpectedException(webob.exc.HTTPClientError):
             self.test_create_pool(session_persistence=sp)
 
+    def test_validate_session_persistence_valid_with_cookie_name(self):
+        sp = {'type': 'APP_COOKIE', 'cookie_name': 'MyCookie'}
+        self.assertIsNone(
+            self.plugin._validate_session_persistence_info(sp_info=sp))
+
+    def test_validate_session_persistence_invalid_with_cookie_name(self):
+        sp = {'type': 'HTTP', 'cookie_name': 'MyCookie'}
+        with testtools.ExpectedException(
+                loadbalancerv2.SessionPersistenceConfigurationInvalid):
+            self.plugin._validate_session_persistence_info(sp_info=sp)
+
+    def test_validate_session_persistence_invalid_without_cookie_name(self):
+        sp = {'type': 'APP_COOKIE'}
+        with testtools.ExpectedException(
+                loadbalancerv2.SessionPersistenceConfigurationInvalid):
+            self.plugin._validate_session_persistence_info(sp_info=sp)
+
     def test_reset_session_persistence(self):
         name = 'pool4'
         sp = {'type': "HTTP_COOKIE"}
@@ -1058,6 +1094,31 @@ class LbaasPoolTests(PoolTestBase):
             data = {'pool': {'protocol': 'BLANK'}}
             resp, body = self._update_pool_api(pool_id, data)
             self.assertEqual(webob.exc.HTTPBadRequest.code, resp.status_int)
+
+    def test_list_pools(self):
+        name = 'list_pools'
+        expected_values = {'name': name,
+                           'protocol': 'HTTP',
+                           'description': 'apool',
+                           'lb_algorithm': 'ROUND_ROBIN',
+                           'admin_state_up': True,
+                           'tenant_id': self._tenant_id,
+                           'session_persistence': {'cookie_name': None,
+                                                   'type': 'HTTP_COOKIE'},
+                           'listeners': [{'id': self.listener_id}],
+                           'members': []}
+
+        with self.pool(name=name, listener_id=self.listener_id,
+                       description='apool',
+                       session_persistence={'type': 'HTTP_COOKIE'},
+                       members=[]) as pool:
+            pool_id = pool['pool']['id']
+            expected_values['id'] = pool_id
+            resp, body = self._list_pools_api()
+            pool_list = body['pools']
+            self.assertEqual(len(pool_list), 1)
+            for k in expected_values:
+                self.assertEqual(pool_list[0][k], expected_values[k])
 
     def test_list_pools_with_sort_emulated(self):
         with contextlib.nested(self.listener(loadbalancer_id=self.lb_id,
@@ -1135,9 +1196,12 @@ class LbaasPoolTests(PoolTestBase):
 class MemberTestBase(PoolTestBase):
     def setUp(self):
         super(MemberTestBase, self).setUp()
-        pool_res = self._create_pool(self.fmt, lb_const.PROTOCOL_HTTP,
-                                     lb_const.LB_METHOD_ROUND_ROBIN,
-                                     self.listener_id)
+        pool_res = self._create_pool(
+            self.fmt, lb_const.PROTOCOL_HTTP,
+            lb_const.LB_METHOD_ROUND_ROBIN,
+            self.listener_id,
+            session_persistence={'type':
+                                 lb_const.SESSION_PERSISTENCE_HTTP_COOKIE})
         self.pool = self.deserialize(self.fmt, pool_res)
         self.pool_id = self.pool['pool']['id']
 
@@ -1405,6 +1469,11 @@ class LbaasHealthMonitorTests(HealthMonitorTestBase):
             self.assertEqual(expected, actual)
             self._validate_statuses(self.lb_id, self.listener_id, self.pool_id,
                                     hm_id=hm_id)
+            _, pool = self._get_pool_api(self.pool_id)
+            self.assertEqual(
+                pool['pool'].get('session_persistence'),
+                {'type': lb_const.SESSION_PERSISTENCE_HTTP_COOKIE,
+                 'cookie_name': None})
         return healthmonitor
 
     def test_show_healthmonitor(self, **extras):

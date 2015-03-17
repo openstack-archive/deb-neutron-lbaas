@@ -17,7 +17,7 @@ import functools
 
 from heleosapi import exceptions as h_exc
 from neutron.i18n import _LW
-from neutron.openstack.common import log as logging
+from oslo_log import log as logging
 
 from neutron_lbaas.services.loadbalancer import constants as lcon
 from neutron_lbaas.services.loadbalancer.drivers.embrane \
@@ -27,12 +27,12 @@ LOG = logging.getLogger(__name__)
 handlers = {}
 
 
-def handler(event, handler):
+def handler(event, ahandler):
     def wrap(f):
-        if event not in handler.keys():
-            handler[event] = [f]
+        if event not in ahandler.keys():
+            ahandler[event] = [f]
         else:
-            handler[event].append(f)
+            ahandler[event].append(f)
 
         @functools.wraps(f)
         def wrapped_f(*args, **kwargs):

@@ -12,9 +12,9 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.openstack.common import log as logging
+from oslo_log import log as logging
 
-from neutron_lbaas.services.loadbalancer.drivers import driver_base
+from neutron_lbaas.drivers import driver_base
 
 LOG = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ LOG = logging.getLogger(__name__)
 class LoggingNoopLoadBalancerDriver(driver_base.LoadBalancerBaseDriver):
 
     def __init__(self, plugin):
-        self.plugin = plugin
+        super(LoggingNoopLoadBalancerDriver, self).__init__(plugin)
 
         # Each of the major LBaaS objects in the neutron database
         # need a corresponding manager/handler class.
@@ -54,10 +54,10 @@ class LoggingNoopCommonManager(object):
 class LoggingNoopLoadBalancerManager(LoggingNoopCommonManager,
                                      driver_base.BaseLoadBalancerManager):
 
-    def refresh(self, context, lb_obj, force=False):
+    def refresh(self, context, obj):
         # This is intended to trigger the backend to check and repair
         # the state of this load balancer and all of its dependent objects
-        LOG.debug("LB pool refresh %s, force=%s", lb_obj.id, force)
+        LOG.debug("LB pool refresh %s", obj.id)
 
     def stats(self, context, lb_obj):
         LOG.debug("LB stats %s", lb_obj.id)

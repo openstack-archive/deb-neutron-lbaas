@@ -19,12 +19,12 @@ from heleosapi import info as h_info
 from neutron.api.v2 import attributes
 from neutron.common import exceptions as n_exc
 from neutron.i18n import _LW
-from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants as pcon
 from neutron.plugins.embrane.common import contexts as embrane_ctx
 from neutron.plugins.embrane.common import exceptions as h_exc
 from neutron.plugins.embrane.common import utils
 from oslo_config import cfg
+from oslo_log import log as logging
 
 from neutron_lbaas.db.loadbalancer import loadbalancer_db as ldb
 from neutron_lbaas.extensions import loadbalancer as lb_ext
@@ -32,7 +32,6 @@ from neutron_lbaas.services.loadbalancer import constants as lbcon
 from neutron_lbaas.services.loadbalancer.drivers import abstract_driver
 from neutron_lbaas.services.loadbalancer.drivers.embrane.agent \
     import dispatcher
-from neutron_lbaas.services.loadbalancer.drivers.embrane import config  # noqa
 from neutron_lbaas.services.loadbalancer.drivers.embrane \
     import constants as econ
 from neutron_lbaas.services.loadbalancer.drivers.embrane import db as edb

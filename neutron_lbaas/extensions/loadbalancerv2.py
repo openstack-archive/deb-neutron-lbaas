@@ -131,6 +131,10 @@ class LBConfigurationUnsupported(nexception.NeutronException):
                 "supported by driver %(driver_name)s")
 
 
+class SessionPersistenceConfigurationInvalid(nexception.BadRequest):
+    message = _("Session Persistence Invalid: %(msg)s")
+
+
 RESOURCE_ATTRIBUTE_MAP = {
     'loadbalancers': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -154,6 +158,8 @@ RESOURCE_ATTRIBUTE_MAP = {
         'vip_address': {'allow_post': True, 'allow_put': False,
                         'default': attr.ATTR_NOT_SPECIFIED,
                         'validate': {'type:ip_address_or_none': None},
+                        'is_visible': True},
+        'vip_port_id': {'allow_post': False, 'allow_put': False,
                         'is_visible': True},
         'provider': {'allow_post': True, 'allow_put': False,
                      'validate': {'type:string': None},
