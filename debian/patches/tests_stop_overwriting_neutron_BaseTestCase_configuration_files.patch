@@ -1,0 +1,80 @@
+From: Ihar Hrachyshka <ihrachys@redhat.com>
+Date: Wed, 18 Mar 2015 13:51:00 +0000 (+0100)
+Subject: tests: stop overwriting neutron BaseTestCase configuration files
+X-Git-Url: https://review.openstack.org/gitweb?p=openstack%2Fneutron-lbaas.git;a=commitdiff_plain;h=14d4773e6361eea4d8efd9d59d716e37a8b16d8c
+
+tests: stop overwriting neutron BaseTestCase configuration files
+
+It's ok to expect configuration files that are passed by neutron's
+BaseTestCase, since they are located in the python package itself (under
+site-packages).
+
+Related-Bug: #1433146
+Change-Id: If1f5ebd981cf06558d5102524211799676068889
+---
+
+diff --git a/neutron_lbaas/tests/base.py b/neutron_lbaas/tests/base.py
+index 3f03467..0c3dba2 100644
+--- a/neutron_lbaas/tests/base.py
++++ b/neutron_lbaas/tests/base.py
+@@ -14,42 +14,19 @@
+ #    under the License.
+ #
+ 
+-import os
+-
+-import neutron
+ from neutron.tests import base as n_base
+ from neutron.tests.unit import test_api_v2_extension
+ from neutron.tests.unit import test_db_plugin
+ from neutron.tests.unit import test_quota_ext
+ from neutron.tests.unit import testlib_api
+-from oslo_config import cfg
+ from testtools import matchers
+ 
+ 
+-def override_nvalues():
+-    neutron_path = os.path.abspath(
+-        os.path.join(os.path.dirname(neutron.__file__), os.pardir))
+-    neutron_policy = os.path.join(neutron_path, 'etc/policy.json')
+-    cfg.CONF.set_override('policy_file', neutron_policy)
+-
+-
+ class BaseTestCase(n_base.BaseTestCase):
+-
+-    def setUp(self):
+-        override_nvalues()
+-        super(BaseTestCase, self).setUp()
++    pass
+ 
+ 
+ class NeutronDbPluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
+-
+-    def setUp(self, plugin=None, service_plugins=None, ext_mgr=None):
+-        override_nvalues()
+-        # NOTE(blogan): this prevents the neutron serviceprovider code from
+-        # parsing real configs in /etc/neutron
+-        cfg.CONF.config_dir = ''
+-        super(NeutronDbPluginV2TestCase, self).setUp(
+-            plugin, service_plugins, ext_mgr)
+-
+     def new_list_request(self, resource, fmt=None, params=None, id=None,
+                          subresource=None):
+         return self._req(
+@@ -201,14 +178,8 @@ class NeutronDbPluginV2TestCase(test_db_plugin.NeutronDbPluginV2TestCase):
+ 
+ 
+ class ExtensionTestCase(test_api_v2_extension.ExtensionTestCase):
+-
+-    def setUp(self):
+-        override_nvalues()
+-        super(ExtensionTestCase, self).setUp()
++    pass
+ 
+ 
+ class QuotaExtensionTestCase(test_quota_ext.QuotaExtensionTestCase):
+-
+-    def setUp(self):
+-        override_nvalues()
+-        super(QuotaExtensionTestCase, self).setUp()
++    pass
