@@ -1,4 +1,4 @@
-neutron-lbaas (2015.1~b2+git20150317+811be1b7ab-1) UNRELEASED; urgency=medium
+neutron-lbaas (2015.1~b3-1) UNRELEASED; urgency=medium
 
   * Initial release. (Closes: #777755)
 
