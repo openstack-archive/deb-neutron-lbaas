@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import six
+
 from neutron.api.v2 import attributes as attrs
 from neutron.common import exceptions as n_exc
 from neutron import context as ncontext
@@ -26,6 +28,8 @@ from oslo_log import log as logging
 from oslo_utils import excutils
 
 from neutron_lbaas import agent_scheduler as agent_scheduler_v2
+import neutron_lbaas.common.cert_manager
+from neutron_lbaas.common.tls_utils import cert_parser
 from neutron_lbaas.db.loadbalancer import loadbalancer_db as ldb
 from neutron_lbaas.db.loadbalancer import loadbalancer_dbv2 as ldbv2
 from neutron_lbaas.db.loadbalancer import models
@@ -34,8 +38,9 @@ from neutron_lbaas.extensions import loadbalancer as lb_ext
 from neutron_lbaas.extensions import loadbalancerv2
 from neutron_lbaas.services.loadbalancer import agent_scheduler
 from neutron_lbaas.services.loadbalancer import constants as lb_const
-
+from neutron_lbaas.services.loadbalancer import data_models
 LOG = logging.getLogger(__name__)
+CERT_MANAGER_PLUGIN = neutron_lbaas.common.cert_manager.CERT_MANAGER_PLUGIN
 
 
 def verify_lbaas_mutual_exclusion():
@@ -544,13 +549,68 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
         return [listener.to_api_dict() for listener in
                 self.db.get_loadbalancers(context, filters=filters)]
 
+    def _validate_tls(self, listener, curr_listener=None):
+        def validate_tls_container(container_ref):
+            cert_container = None
+            try:
+                cert_container = CERT_MANAGER_PLUGIN.CertManager.get_cert(
+                    container_ref, check_only=True)
+            except Exception:
+                raise loadbalancerv2.TLSContainerNotFound(
+                    container_id=container_ref)
+
+            try:
+                cert_parser.validate_cert(
+                    cert_container.get_certificate(),
+                    private_key=cert_container.get_private_key(),
+                    private_key_passphrase=(
+                        cert_container.get_private_key_passphrase()),
+                    intermediates=cert_container.get_intermediates())
+            except Exception as e:
+                raise loadbalancerv2.TLSContainerInvalid(
+                    container_id=container_ref, reason=str(e))
+
+        def validate_tls_containers(to_validate):
+            for container_ref in to_validate:
+                validate_tls_container(container_ref)
+
+        to_validate = []
+        if not listener['default_tls_container_id']:
+            raise loadbalancerv2.TLSDefaultContainerNotSpecified()
+        if not curr_listener:
+            to_validate.extend([listener['default_tls_container_id']])
+            to_validate.extend(listener['sni_container_ids'])
+        elif curr_listener['provisioning_status'] == constants.ERROR:
+            to_validate.extend(curr_listener['default_tls_container_id'])
+            to_validate.extend([
+                    container.tls_container_id for container in (
+                        curr_listener['sni_containers'])])
+        else:
+            if (curr_listener['default_tls_container_id'] !=
+                    listener['default_tls_container_id']):
+                to_validate.extend(listener['default_tls_container_id'])
+
+            if (listener['sni_container_ids'] is not None and
+                    [container['tls_container_id'] for container in (
+                        curr_listener['sni_containers'])] !=
+                    listener['sni_container_ids']):
+                to_validate.extend(listener['sni_container_ids'])
+
+        if len(to_validate) > 0:
+            validate_tls_containers(to_validate)
+
+        return len(to_validate) > 0
+
     def create_listener(self, context, listener):
         listener = listener.get('listener')
         lb_id = listener.get('loadbalancer_id')
         listener['default_pool_id'] = None
         self.db.test_and_set_status(context, models.LoadBalancer, lb_id,
                                     constants.PENDING_UPDATE)
+
         try:
+            if listener['protocol'] == lb_const.PROTOCOL_TERMINATED_HTTPS:
+                self._validate_tls(listener)
             listener_db = self.db.create_listener(context, listener)
         except Exception as exc:
             self.db.update_loadbalancer_provisioning_status(
@@ -565,14 +625,44 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
 
     def update_listener(self, context, id, listener):
         listener = listener.get('listener')
-        old_listener = self.db.get_listener(context, id)
+        curr_listener_db = self.db.get_listener(context, id)
         self.db.test_and_set_status(context, models.Listener, id,
                                     constants.PENDING_UPDATE)
         try:
-            listener_db = self.db.update_listener(context, id, listener)
+            curr_listener = curr_listener_db.to_dict()
+
+            default_tls_container_id = listener.get(
+                'default_tls_container_id')
+            sni_container_ids = listener.get('sni_container_ids')
+            if not default_tls_container_id:
+                listener['default_tls_container_id'] = (
+                    curr_listener['default_tls_container_id'])
+            if not sni_container_ids:
+                listener['sni_container_ids'] = [
+                    container.tls_container_id for container in (
+                        curr_listener['sni_containers'])]
+
+            tls_containers_changed = False
+            if curr_listener['protocol'] == lb_const.PROTOCOL_TERMINATED_HTTPS:
+                tls_containers_changed = self._validate_tls(
+                    listener, curr_listener=curr_listener)
+
+            listener_db = self.db.update_listener(
+                context, id, listener,
+                tls_containers_changed=tls_containers_changed)
         except Exception as exc:
-            self.db.update_loadbalancer_provisioning_status(
-                context, old_listener.loadbalancer.id)
+            self.db.update_status(
+                context,
+                models.LoadBalancer,
+                curr_listener_db.loadbalancer.id,
+                provisioning_status=constants.ACTIVE
+            )
+            self.db.update_status(
+                context,
+                models.Listener,
+                curr_listener_db.id,
+                provisioning_status=constants.ACTIVE
+            )
             raise exc
 
         driver = self._get_driver_for_loadbalancer(
@@ -581,7 +671,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
             context,
             driver.listener.update,
             listener_db,
-            old_db_entity=old_listener)
+            old_db_entity=curr_listener_db)
 
         return self.db.get_listener(context, id).to_api_dict()
 
@@ -827,48 +917,131 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
             raise pconf.ServiceProviderNotFound(
                 provider=provider, service_type=constants.LOADBALANCERV2)
 
+    def _default_status(self, obj, exclude=None, **kw):
+        exclude = exclude or []
+        status = {}
+        status["id"] = obj.id
+        if "provisioning_status" not in exclude:
+            status["provisioning_status"] = obj.provisioning_status
+        if "operating_status" not in exclude:
+            status["operating_status"] = obj.operating_status
+        for key, value in six.iteritems(kw):
+            status[key] = value
+        try:
+            status['name'] = getattr(obj, 'name')
+        except AttributeError:
+            pass
+        return status
+
+    def _disable_entity_and_children(self, obj):
+        DISABLED = lb_const.DISABLED
+        d = {}
+        if isinstance(obj, data_models.LoadBalancer):
+            d = {'loadbalancer': {'id': obj.id, 'operating_status': DISABLED,
+                'provisioning_status': obj.provisioning_status,
+                'name': obj.name, 'listeners': []}}
+            for listener in obj.listeners:
+                listener_dict = self._disable_entity_and_children(listener)
+                d['loadbalancer']['listeners'].append(listener_dict)
+        if isinstance(obj, data_models.Listener):
+            d = {'id': obj.id, 'operating_status': DISABLED,
+                 'provisioning_status': obj.provisioning_status,
+                 'name': obj.name, 'pools': []}
+            if obj.default_pool:
+                pool_dict = self._disable_entity_and_children(obj.default_pool)
+                d['pools'].append(pool_dict)
+        if isinstance(obj, data_models.Pool):
+            d = {'id': obj.id, 'operating_status': DISABLED,
+                 'provisioning_status': obj.provisioning_status,
+                 'name': obj.name, 'members': [], 'healthmonitor': {}}
+            for member in obj.members:
+                member_dict = self._disable_entity_and_children(member)
+                d['members'].append(member_dict)
+            d['healthmonitor'] = self._disable_entity_and_children(
+                obj.healthmonitor)
+        if isinstance(obj, data_models.HealthMonitor):
+            d = {'id': obj.id, 'provisioning_status': obj.provisioning_status,
+                 'type': obj.type}
+        if isinstance(obj, data_models.Member):
+            d = {'id': obj.id, 'operating_status': DISABLED,
+                 'provisioning_status': obj.provisioning_status,
+                 'address': obj.address, 'protocol_port': obj.protocol_port}
+        return d
+
     def statuses(self, context, loadbalancer_id):
-        PROV = 'provisioning_status'
-        OPER = 'operating_status'
+        OS = "operating_status"
         lb = self.db.get_loadbalancer(context, loadbalancer_id)
-        statuses = {'statuses': {}}
-        statuses['statuses']['loadbalancer'] = {
-            PROV: getattr(lb, PROV),
-            OPER: getattr(lb, OPER)
-        }
-        listener_statuses = []
-        for lindex, listener in enumerate(lb.listeners):
-            listener_statuses.append({
-                'id': listener.id,
-                PROV: getattr(listener, PROV),
-                OPER: getattr(listener, OPER)
-            })
-            pool_statuses = []
-            if listener.default_pool:
-                pool_statuses.append({
-                    'id': listener.default_pool.id,
-                    PROV: getattr(listener.default_pool, PROV),
-                    OPER: getattr(listener.default_pool, OPER)
-                })
-                member_statuses = []
-                for mindex, member in enumerate(listener.default_pool.members):
-                    member_statuses.append({
-                        'id': member.id,
-                        PROV: getattr(member, PROV),
-                        OPER: getattr(member, OPER)
-                    })
+        if not lb.admin_state_up:
+            return {"statuses": self._disable_entity_and_children(lb)}
+        lb_status = self._default_status(lb, listeners=[])
+        statuses = {"statuses": {"loadbalancer": lb_status}}
+        if self._is_degraded(lb):
+            self._set_degraded(lb_status)
+        for curr_listener in lb.listeners:
+            if not curr_listener.admin_state_up:
+                lb_status["listeners"].append(
+                    self._disable_entity_and_children(curr_listener)
+                )
+                continue
+            listener_status = self._default_status(curr_listener, pools=[])
+            lb_status["listeners"].append(listener_status)
+            if self._is_degraded(curr_listener):
+                self._set_degraded(lb_status)
+            if not curr_listener.default_pool:
+                continue
+            if not curr_listener.default_pool.admin_state_up:
+                listener_status["pools"].append(
+                    self._disable_entity_and_children(
+                        curr_listener.default_pool))
+                continue
+            pool_status = self._default_status(curr_listener.default_pool,
+                                              members=[], healthmonitor={})
+            listener_status["pools"].append(pool_status)
+            if self._is_degraded(curr_listener.default_pool):
+                self._set_degraded(self, listener_status, lb_status)
+            members = curr_listener.default_pool.members
+            for curr_member in members:
+                if not curr_member.admin_state_up:
+                    pool_status["members"].append(
+                        self._disable_entity_and_children(curr_member))
+                    continue
+                member_opts = {"address": curr_member.address,
+                               "protocol_port": curr_member.protocol_port}
+                member_status = self._default_status(curr_member,
+                                                     **member_opts)
+                pool_status["members"].append(member_status)
+                if self._is_degraded(curr_member):
+                    self._set_degraded(pool_status, listener_status,
+                                       lb_status)
+            healthmonitor = curr_listener.default_pool.healthmonitor
+            if healthmonitor:
+                if not healthmonitor.admin_state_up:
+                    dhm = self._disable_entity_and_children(healthmonitor)
+                    pool_status["healthmonitor"] = dhm
+                else:
+                    hm_status = self._default_status(healthmonitor,
+                                exclude=[OS], type=healthmonitor.type)
+                    if self._is_degraded(healthmonitor, exclude=[OS]):
+                        self._set_degraded(pool_status, listener_status,
+                                           lb_status)
+            else:
                 hm_status = {}
-                if listener.default_pool.healthmonitor:
-                    hm_status = {
-                        'id': listener.default_pool.healthmonitor.id,
-                        PROV: getattr(listener.default_pool.healthmonitor,
-                                      PROV)
-                    }
-                pool_statuses[0]['healthmonitor'] = hm_status
-                pool_statuses[0]['members'] = member_statuses
-            listener_statuses[lindex]['pools'] = pool_statuses
-        statuses['statuses']['loadbalancer']['listeners'] = listener_statuses
+            pool_status["healthmonitor"] = hm_status
         return statuses
+
+    def _set_degraded(self, *objects):
+        for obj in objects:
+            obj["operating_status"] = lb_const.DEGRADED
+
+    def _is_degraded(self, obj, exclude=None):
+        exclude = exclude or []
+        if "provisioning_status" not in exclude:
+            if obj.provisioning_status == constants.ERROR:
+                return True
+        if "operating_status" not in exclude:
+            if obj.operating_status != lb_const.ONLINE:
+                return True
+        return False
 
     # NOTE(brandon-logan): these need to be concrete methods because the
     # neutron request pipeline calls these methods before the plugin methods

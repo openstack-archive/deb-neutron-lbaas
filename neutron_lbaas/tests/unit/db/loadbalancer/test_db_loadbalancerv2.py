@@ -14,8 +14,10 @@
 # limitations under the License.
 
 import contextlib
-
+import copy
 import mock
+import six
+
 from neutron.api import extensions
 from neutron.api.v2 import attributes
 from neutron.common import config
@@ -29,6 +31,8 @@ from oslo_config import cfg
 import testtools
 import webob.exc
 
+from neutron_lbaas.common.cert_manager import cert_manager
+from neutron_lbaas.common import exceptions
 from neutron_lbaas.db.loadbalancer import models
 import neutron_lbaas.extensions
 from neutron_lbaas.extensions import loadbalancerv2
@@ -76,7 +80,9 @@ class LbaasTestMixin(object):
         return lb_res
 
     def _get_listener_optional_args(self):
-        return 'name', 'description', 'connection_limit', 'admin_state_up'
+        return ('name', 'description', 'default_pool_id', 'loadbalancer_id',
+                'connection_limit', 'admin_state_up',
+                'default_tls_container_id', 'sni_container_ids')
 
     def _create_listener(self, fmt, protocol, protocol_port, loadbalancer_id,
                          expected_res_status=None, **kwargs):
@@ -372,12 +378,18 @@ class LbaasPluginDbTestCase(LbaasTestMixin, base.NeutronDbPluginV2TestCase):
         return resp, body
 
     def _validate_statuses(self, lb_id, listener_id=None, pool_id=None,
-                           member_id=None, hm_id=None):
+                           member_id=None, hm_id=None,
+                           member_disabled=False, listener_disabled=False,
+                           loadbalancer_disabled=False):
         resp, body = self._get_loadbalancer_statuses_api(lb_id)
         lb_statuses = body['statuses']['loadbalancer']
         self.assertEqual(constants.ACTIVE,
                          lb_statuses['provisioning_status'])
-        self.assertEqual(lb_const.ONLINE,
+        if loadbalancer_disabled:
+            self.assertEqual(lb_const.DISABLED,
+                            lb_statuses['operating_status'])
+        else:
+            self.assertEqual(lb_const.ONLINE,
                          lb_statuses['operating_status'])
         if listener_id:
             listener_statuses = None
@@ -387,8 +399,12 @@ class LbaasPluginDbTestCase(LbaasTestMixin, base.NeutronDbPluginV2TestCase):
             self.assertIsNotNone(listener_statuses)
             self.assertEqual(constants.ACTIVE,
                              listener_statuses['provisioning_status'])
-            self.assertEqual(lb_const.ONLINE,
-                             listener_statuses['operating_status'])
+            if listener_disabled:
+                self.assertEqual(lb_const.DISABLED,
+                                 listener_statuses['operating_status'])
+            else:
+                self.assertEqual(lb_const.ONLINE,
+                                 listener_statuses['operating_status'])
             if pool_id:
                 pool_statuses = None
                 for pool in listener_statuses['pools']:
@@ -407,7 +423,11 @@ class LbaasPluginDbTestCase(LbaasTestMixin, base.NeutronDbPluginV2TestCase):
                     self.assertIsNotNone(member_statuses)
                     self.assertEqual(constants.ACTIVE,
                                      member_statuses['provisioning_status'])
-                    self.assertEqual(lb_const.ONLINE,
+                    if member_disabled:
+                        self.assertEqual(lb_const.DISABLED,
+                                         member_statuses["operating_status"])
+                    else:
+                        self.assertEqual(lb_const.ONLINE,
                                      member_statuses['operating_status'])
                 if hm_id:
                     hm_status = pool_statuses['healthmonitor']
@@ -479,7 +499,8 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                 for k in expected_values:
                     self.assertEqual(res['loadbalancer'][k],
                                      expected_values[k])
-                self._validate_statuses(loadbalancer_id)
+                self._validate_statuses(loadbalancer_id,
+                                        loadbalancer_disabled=True)
 
     def test_delete_loadbalancer(self):
         with self.subnet() as subnet:
@@ -680,6 +701,23 @@ class ListenerTestBase(LbaasPluginDbTestCase):
         return resp, body
 
 
+class CertMock(cert_manager.Cert):
+    def __init__(self, cert_container):
+        pass
+
+    def get_certificate(self):
+        return "mock"
+
+    def get_intermediates(self):
+        return "mock"
+
+    def get_private_key(self):
+        return "mock"
+
+    def get_private_key_passphrase(self):
+        return "mock"
+
+
 class LbaasListenerTests(ListenerTestBase):
 
     def test_create_listener(self, **extras):
@@ -712,6 +750,109 @@ class LbaasListenerTests(ListenerTestBase):
                                   loadbalancer_id=self.lb_id,
                                   expected_res_status=409)
 
+    def test_create_listener_with_tls_no_default_container(self, **extras):
+        listener_data = {
+            'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
+            'default_tls_container_id': None,
+            'protocol_port': 443,
+            'admin_state_up': True,
+            'tenant_id': self._tenant_id,
+            'loadbalancer_id': self.lb_id,
+        }
+
+        listener_data.update(extras)
+        self.assertRaises(
+                        loadbalancerv2.TLSDefaultContainerNotSpecified,
+                        self.plugin.create_listener,
+                        context.get_admin_context(),
+                        {'listener': listener_data})
+
+    def test_create_listener_with_tls_missing_container(self, **extras):
+        default_tls_container_id = uuidutils.generate_uuid()
+        listener_data = {
+            'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
+            'default_tls_container_id': default_tls_container_id,
+            'sni_container_ids': [],
+            'protocol_port': 443,
+            'admin_state_up': True,
+            'tenant_id': self._tenant_id,
+            'loadbalancer_id': self.lb_id
+        }
+        listener_data.update(extras)
+
+        with mock.patch(
+            'neutron_lbaas.services.loadbalancer.plugin.'
+            'CERT_MANAGER_PLUGIN.CertManager.get_cert') as get_cert_mock:
+            get_cert_mock.side_effect = LookupError
+
+            self.assertRaises(loadbalancerv2.TLSContainerNotFound,
+                              self.plugin.create_listener,
+                              context.get_admin_context(),
+                              {'listener': listener_data})
+
+    def test_create_listener_with_tls_invalid_container(self, **extras):
+        default_tls_container_id = uuidutils.generate_uuid()
+        listener_data = {
+            'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
+            'default_tls_container_id': default_tls_container_id,
+            'sni_container_ids': [],
+            'protocol_port': 443,
+            'admin_state_up': True,
+            'tenant_id': self._tenant_id,
+            'loadbalancer_id': self.lb_id
+        }
+        listener_data.update(extras)
+
+        with contextlib.nested(
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'cert_parser.validate_cert'),
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.get_cert')
+        ) as (validate_cert_mock, get_cert_mock):
+            get_cert_mock.start().return_value = CertMock(
+                'mock_cert')
+            validate_cert_mock.side_effect = exceptions.MisMatchedKey
+
+            self.assertRaises(loadbalancerv2.TLSContainerInvalid,
+                              self.plugin.create_listener,
+                              context.get_admin_context(),
+                              {'listener': listener_data})
+
+    def test_create_listener_with_tls(self, **extras):
+        default_tls_container_id = uuidutils.generate_uuid()
+        sni_tls_container_id_1 = uuidutils.generate_uuid()
+        sni_tls_container_id_2 = uuidutils.generate_uuid()
+
+        expected = {
+            'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
+            'default_tls_container_id': default_tls_container_id,
+            'sni_container_ids': [sni_tls_container_id_1,
+                                  sni_tls_container_id_2]}
+
+        extras['default_tls_container_id'] = default_tls_container_id
+        extras['sni_container_ids'] = [sni_tls_container_id_1,
+                                       sni_tls_container_id_2]
+
+        with contextlib.nested(
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'cert_parser.validate_cert'),
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.get_cert')
+        ) as (validate_cert_mock, get_cert_mock):
+            get_cert_mock.start().return_value = CertMock(
+                'mock_cert')
+            validate_cert_mock.start().return_value = True
+
+            with self.listener(protocol=lb_const.PROTOCOL_TERMINATED_HTTPS,
+                               loadbalancer_id=self.lb_id, protocol_port=443,
+                               **extras) as listener:
+                self.assertEqual(
+                    dict((k, v)
+                         for k, v in listener['listener'].items()
+                         if k in expected),
+                    expected
+                )
+
     def test_create_listener_loadbalancer_id_does_not_exist(self):
         self._create_listener(self.fmt, 'HTTP', 80,
                               loadbalancer_id=uuidutils.generate_uuid(),
@@ -735,7 +876,74 @@ class LbaasListenerTests(ListenerTestBase):
             resp, body = self._update_listener_api(listener_id, data)
             for k in expected_values:
                 self.assertEqual(body['listener'][k], expected_values[k])
-            self._validate_statuses(self.lb_id, listener_id)
+            self._validate_statuses(self.lb_id, listener_id,
+                                    listener_disabled=True)
+
+    def test_update_listener_with_tls(self):
+        default_tls_container_id = uuidutils.generate_uuid()
+        sni_tls_container_id_1 = uuidutils.generate_uuid()
+        sni_tls_container_id_2 = uuidutils.generate_uuid()
+        sni_tls_container_id_3 = uuidutils.generate_uuid()
+        sni_tls_container_id_4 = uuidutils.generate_uuid()
+        sni_tls_container_id_5 = uuidutils.generate_uuid()
+
+        listener_data = {
+            'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
+            'default_tls_container_id': default_tls_container_id,
+            'sni_container_ids': [sni_tls_container_id_1,
+                                  sni_tls_container_id_2],
+            'protocol_port': 443,
+            'admin_state_up': True,
+            'tenant_id': self._tenant_id,
+            'loadbalancer_id': self.lb_id
+        }
+
+        with contextlib.nested(
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'cert_parser.validate_cert'),
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.get_cert')
+        ) as (validate_cert_mock, get_cert_mock):
+            get_cert_mock.start().return_value = CertMock(
+                'mock_cert')
+            validate_cert_mock.start().return_value = True
+
+            # Default container and two SNI containers
+            # Test order and validation behavior.
+            listener = self.plugin.create_listener(context.get_admin_context(),
+                                                   {'listener': listener_data})
+            self.assertEqual(listener['sni_container_ids'],
+                             [sni_tls_container_id_1, sni_tls_container_id_2])
+
+            # Default container and two other SNI containers
+            # Test order and validation behavior.
+            listener_data.pop('loadbalancer_id')
+            listener_data.pop('protocol')
+            listener_data.pop('provisioning_status')
+            listener_data.pop('operating_status')
+            listener_data['sni_container_ids'] = [sni_tls_container_id_3,
+                                                  sni_tls_container_id_4]
+            listener = self.plugin.update_listener(
+                context.get_admin_context(),
+                listener['id'],
+                {'listener': listener_data}
+            )
+            self.assertEqual(listener['sni_container_ids'],
+                             [sni_tls_container_id_3, sni_tls_container_id_4])
+
+            # Default container, two old SNI containers ordered differently
+            # and one new SNI container.
+            # Test order and validation behavior.
+            listener_data.pop('protocol')
+            listener_data['sni_container_ids'] = [sni_tls_container_id_4,
+                                                  sni_tls_container_id_3,
+                                                  sni_tls_container_id_5]
+            listener = self.plugin.update_listener(context.get_admin_context(),
+                                                   listener['id'],
+                                                   {'listener': listener_data})
+            self.assertEqual(listener['sni_container_ids'],
+                             [sni_tls_container_id_4, sni_tls_container_id_3,
+                              sni_tls_container_id_5])
 
     def test_delete_listener(self):
         with self.listener(no_delete=True,
@@ -1306,7 +1514,7 @@ class LbaasMemberTests(MemberTestBase):
             resp, pool1_update = self._get_pool_api(self.pool_id)
             self.assertEqual(len(pool1_update['pool']['members']), 1)
             self._validate_statuses(self.lb_id, self.listener_id, self.pool_id,
-                                    member_id)
+                                    member_id, member_disabled=True)
 
     def test_delete_member(self):
         with self.member(pool_id=self.pool_id, no_delete=True) as member:
@@ -1718,3 +1926,248 @@ class LbaasHealthMonitorTests(HealthMonitorTestBase):
             hm_id = healthmonitor['healthmonitor']['id']
             resp, body = self._get_pool_api(self.pool_id)
             self.assertEqual(hm_id, body['pool']['healthmonitor_id'])
+
+
+class LbaasStatusesTest(MemberTestBase):
+    def setUp(self):
+        super(LbaasStatusesTest, self).setUp()
+        self.lbs_to_clean = []
+
+    def tearDown(self):
+        for lb_dict in self.lbs_to_clean:
+            self._delete_populated_lb(lb_dict)
+        super(LbaasStatusesTest, self).tearDown()
+
+    def test_disable_lb(self):
+        ctx = context.get_admin_context()
+        lb_dict = self._create_new_populated_loadbalancer()
+        lb_id = lb_dict['id']
+        opt = {'admin_state_up': False}
+        self.plugin.db.update_loadbalancer(ctx, lb_id, opt)
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        n_disabled = self._countDisabledChildren(statuses, 0)
+        self.assertEqual(11, n_disabled)
+
+    def _countDisabledChildren(self, obj, count):
+        if isinstance(obj, dict):
+            for key, value in six.iteritems(obj):
+                if key == "operating_status":
+                    count += 1
+                    continue
+                count = self._countDisabledChildren(value, count)
+        if isinstance(obj, list):
+            for value in obj:
+                count = self._countDisabledChildren(value, count)
+        return count
+
+    def test_disable_trickles_down(self):
+        lb_dict = self._create_new_populated_loadbalancer()
+        lb_id = lb_dict['id']
+        self._update_loadbalancer_api(lb_id,
+                                      {'loadbalancer': {
+                                          'admin_state_up': False}})
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        self._assertDisabled(self._traverse_statuses(statuses))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTP'))
+        self._assertDisabled(self._traverse_statuses(
+            statuses, listener='listener_HTTPS'))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTP',
+                                                     pool='pool_HTTP'))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTPS',
+                                                     pool='pool_HTTPS'))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTP',
+                                                     pool='pool_HTTP',
+                                                     member='127.0.0.1'))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTPS',
+                                                     pool='pool_HTTPS',
+                                                     member='127.0.0.4'))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTP',
+                                                     pool='pool_HTTP',
+                                                     healthmonitor=True))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTPS',
+                                                     pool='pool_HTTPS',
+                                                     healthmonitor=True))
+
+    def test_disable_not_calculated_in_degraded(self):
+        lb_dict = self._create_new_populated_loadbalancer()
+        lb_id = lb_dict['id']
+        listener_id = lb_dict['listeners'][0]['id']
+        listener = 'listener_HTTP'
+        self._update_listener_api(listener_id,
+                                  {'listener': {'admin_state_up': False}})
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        self._assertOnline(self._traverse_statuses(statuses))
+        self._update_listener_api(listener_id,
+                                  {'listener': {'admin_state_up': True}})
+        pool_id = lb_dict['listeners'][0]['pools'][0]['id']
+        pool = 'pool_HTTP'
+        member_id = lb_dict['listeners'][0]['pools'][0]['members'][0]['id']
+        member = '127.0.0.1'
+        self._update_member_api(pool_id, member_id,
+                                {'member': {'admin_state_up': False}})
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        self._assertOnline(self._traverse_statuses(statuses))
+        self._assertOnline(self._traverse_statuses(statuses,
+                                                   listener=listener))
+        self._assertOnline(self._traverse_statuses(statuses,
+                                                   listener=listener,
+                                                   pool=pool))
+        self._assertDisabled(self._traverse_statuses(statuses,
+                                                     listener=listener,
+                                                     pool=pool,
+                                                     member=member))
+
+    def test_that_failures_trickle_up_on_prov_errors(self):
+        ctx = context.get_admin_context()
+        ERROR = constants.ERROR
+        lb_dict = self._create_new_populated_loadbalancer()
+        lb_id = lb_dict['id']
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        stat = self._traverse_statuses(statuses, listener="listener_HTTP",
+                                       pool="pool_HTTP", member='127.0.0.1')
+        member_id = stat['id']
+        self.plugin.db.update_status(ctx, models.MemberV2, member_id,
+                                     provisioning_status=ERROR)
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        #Assert the parents of the member are degraded
+        self._assertDegraded(self._traverse_statuses(statuses,
+                                                     listener='listener_HTTP',
+                                                     pool='pool_HTTP'))
+        self._assertDegraded(self._traverse_statuses(statuses,
+                                                    listener='listener_HTTP'))
+        self._assertDegraded(self._traverse_statuses(statuses))
+        #Verify siblings are not degraded
+        self._assertNotDegraded(self._traverse_statuses(statuses,
+            listener='listener_HTTPS', pool='pool_HTTPS'))
+        self._assertNotDegraded(self._traverse_statuses(statuses,
+            listener='listener_HTTPS'))
+
+    def test_that_failures_trickle_up_on_non_ONLINE_prov_status(self):
+        ctx = context.get_admin_context()
+        lb_dict = self._create_new_populated_loadbalancer()
+        lb_id = lb_dict['id']
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        stat = self._traverse_statuses(statuses, listener="listener_HTTP",
+                                       pool="pool_HTTP", member='127.0.0.1')
+        member_id = stat['id']
+        self.plugin.db.update_status(ctx, models.MemberV2, member_id,
+                                     operating_status=lb_const.OFFLINE)
+        statuses = self._get_loadbalancer_statuses_api(lb_id)[1]
+        #Assert the parents of the member are degraded
+        self._assertDegraded(self._traverse_statuses(statuses,
+                                                    listener='listener_HTTP',
+                                                    pool='pool_HTTP'))
+        self._assertDegraded(self._traverse_statuses(statuses,
+                                                    listener='listener_HTTP'))
+        self._assertDegraded(self._traverse_statuses(statuses))
+        #Verify siblings are not degraded
+        self._assertNotDegraded(self._traverse_statuses(statuses,
+            listener='listener_HTTPS', pool='pool_HTTPS'))
+        self._assertNotDegraded(self._traverse_statuses(statuses,
+            listener='listener_HTTPS'))
+
+    def _assertOnline(self, obj):
+        OS = "operating_status"
+        if OS in obj:
+            self.assertEqual(lb_const.ONLINE, obj[OS])
+
+    def _assertDegraded(self, obj):
+        OS = "operating_status"
+        if OS in obj:
+            self.assertEqual(lb_const.DEGRADED, obj[OS])
+
+    def _assertNotDegraded(self, obj):
+        OS = "operating_status"
+        if OS in obj:
+            self.assertNotEqual(lb_const.DEGRADED, obj[OS])
+
+    def _assertDisabled(self, obj):
+        OS = "operating_status"
+        if OS in obj:
+            self.assertEqual(lb_const.DISABLED, obj[OS])
+
+    def _delete_populated_lb(self, lb_dict):
+        lb_id = lb_dict['id']
+        for listener in lb_dict['listeners']:
+            listener_id = listener['id']
+            for pool in listener['pools']:
+                pool_id = pool['id']
+                for member in pool['members']:
+                    member_id = member['id']
+                    self._delete_member_api(pool_id, member_id)
+                self._delete_pool_api(pool_id)
+            self._delete_listener_api(listener_id)
+        self._delete_loadbalancer_api(lb_id)
+
+    def _traverse_statuses(self, statuses, listener=None, pool=None,
+                           member=None, healthmonitor=False):
+        lb = statuses['statuses']['loadbalancer']
+        if listener is None:
+            return copy.copy(lb)
+        listener_list = lb['listeners']
+        for listener_obj in listener_list:
+            if listener_obj['name'] == listener:
+                if pool is None:
+                    return copy.copy(listener_obj)
+                pool_list = listener_obj['pools']
+                for pool_obj in pool_list:
+                    if pool_obj['name'] == pool:
+                        if healthmonitor:
+                            return copy.copy(pool_obj['healthmonitor'])
+                        if member is None:
+                            return copy.copy(pool_obj)
+                        member_list = pool_obj['members']
+                        for member_obj in member_list:
+                            if member_obj['address'] == member:
+                                return copy.copy(member_obj)
+        raise KeyError
+
+    def _create_new_populated_loadbalancer(self):
+        oct4 = 1
+        subnet_id = self.test_subnet_id
+        HTTP = lb_const.PROTOCOL_HTTP
+        HTTPS = lb_const.PROTOCOL_HTTPS
+        ROUND_ROBIN = lb_const.LB_METHOD_ROUND_ROBIN
+        fmt = self.fmt
+        lb_dict = {}
+        lb_res = self._create_loadbalancer(
+            self.fmt, subnet_id=self.test_subnet_id,
+            name='test_loadbalancer')
+        lb = self.deserialize(fmt, lb_res)
+        lb_id = lb['loadbalancer']['id']
+        lb_dict['id'] = lb_id
+        lb_dict['listeners'] = []
+        for prot, port in [(HTTP, 80), (HTTPS, 443)]:
+            res = self._create_listener(fmt, prot, port, lb_id,
+                                        name="listener_%s" % prot)
+            listener = self.deserialize(fmt, res)
+            listener_id = listener['listener']['id']
+            lb_dict['listeners'].append({'id': listener_id, 'pools': []})
+            res = self._create_pool(fmt, prot, ROUND_ROBIN, listener_id,
+                                    name="pool_%s" % prot)
+            pool = self.deserialize(fmt, res)
+            pool_id = pool['pool']['id']
+            members = []
+            lb_dict['listeners'][-1]['pools'].append({'id': pool['pool']['id'],
+                                                      'members': members})
+            res = self._create_healthmonitor(fmt, pool_id, type=prot, delay=1,
+                                             timeout=1, max_retries=1)
+            health_monitor = self.deserialize(fmt, res)
+            lb_dict['listeners'][-1]['pools'][-1]['health_monitor'] = {
+                'id': health_monitor['healthmonitor']['id']}
+            for i in xrange(0, 3):
+                address = "127.0.0.%i" % oct4
+                oct4 += 1
+                res = self._create_member(fmt, pool_id, address, port,
+                                          subnet_id)
+                member = self.deserialize(fmt, res)
+                members.append({'id': member['member']['id']})
+        self.lbs_to_clean.append(lb_dict)
+        return lb_dict
