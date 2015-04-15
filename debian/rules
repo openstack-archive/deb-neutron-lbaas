@@ -11,7 +11,7 @@ PYTHONS:=$(shell pyversions -vr)
 	dh $@ --buildsystem=python_distutils --with python2,systemd
 
 override_dh_install:
-	dh_install -O--buildsystem=python_distutils
+	dh_install -O--buildsystem=python_distutils --fail-missing
 	install -D -m 0644 etc/neutron_lbaas.conf $(CURDIR)/debian/neutron-lbass/etc/neutron/neutron_lbaas.conf
 
 override_dh_auto_test:
