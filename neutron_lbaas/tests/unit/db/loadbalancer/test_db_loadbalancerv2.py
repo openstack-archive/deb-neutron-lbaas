@@ -26,7 +26,7 @@ import neutron.db.l3_db  # noqa
 from neutron.db import servicetype_db as sdb
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
-from neutron.tests.unit import test_db_plugin
+from neutron.tests.unit.db import test_db_base_plugin_v2
 from oslo_config import cfg
 import testtools
 import webob.exc
@@ -180,7 +180,9 @@ class LbaasTestMixin(object):
         if not fmt:
             fmt = self.fmt
 
-        with test_db_plugin.optional_ctx(subnet, self.subnet) as tmp_subnet:
+        with test_db_base_plugin_v2.optional_ctx(
+            subnet, self.subnet) as tmp_subnet:
+
             res = self._create_loadbalancer(fmt,
                                             tmp_subnet['subnet']['id'],
                                             **kwargs)
@@ -240,7 +242,9 @@ class LbaasTestMixin(object):
         if not fmt:
             fmt = self.fmt
         subnet = subnet or self.test_subnet
-        with test_db_plugin.optional_ctx(subnet, self.subnet) as tmp_subnet:
+        with test_db_base_plugin_v2.optional_ctx(
+            subnet, self.subnet) as tmp_subnet:
+
             res = self._create_member(fmt,
                                       pool_id=pool_id,
                                       address=address,
@@ -1926,6 +1930,18 @@ class LbaasHealthMonitorTests(HealthMonitorTestBase):
             hm_id = healthmonitor['healthmonitor']['id']
             resp, body = self._get_pool_api(self.pool_id)
             self.assertEqual(hm_id, body['pool']['healthmonitor_id'])
+
+    def test_update_healthmonitor_status(self):
+        with self.healthmonitor(pool_id=self.pool_id) as healthmonitor:
+            hm_id = healthmonitor['healthmonitor'].get('id')
+            ctx = context.get_admin_context()
+            self.plugin.db.update_status(ctx,
+                                         models.HealthMonitorV2, hm_id,
+                                         provisioning_status=constants.ACTIVE,
+                                         operating_status=lb_const.DEGRADED)
+            db_hm = self.plugin.db.get_healthmonitor(ctx, hm_id)
+            self.assertEqual(db_hm.provisioning_status, constants.ACTIVE)
+            self.assertFalse(hasattr(db_hm, 'operating_status'))
 
 
 class LbaasStatusesTest(MemberTestBase):

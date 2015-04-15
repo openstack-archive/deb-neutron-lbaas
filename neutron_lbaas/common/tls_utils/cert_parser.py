@@ -42,10 +42,9 @@ def validate_cert(certificate, private_key=None,
     x509 = _get_x509_from_pem_bytes(certificate)
     if intermediates:
         for x509Pem in _split_x509s(intermediates):
-            x509 = _get_x509_from_pem_bytes(x509Pem)
+            _get_x509_from_pem_bytes(x509Pem)
     if private_key:
-        pkey = _read_privatekey(private_key,
-            passphrase=private_key_passphrase)
+        pkey = _read_privatekey(private_key, passphrase=private_key_passphrase)
         ctx = SSL.Context(SSL.TLSv1_METHOD)
         ctx.use_certificate(x509)
         try:
@@ -59,7 +58,7 @@ def validate_cert(certificate, private_key=None,
 def _read_privatekey(privatekey_pem, passphrase=None):
     def cb(*args):
         if passphrase:
-            return six.b(passphrase)
+            return six.b(passphrase).encode('utf-8')
         else:
             raise exceptions.NeedsPassphrase
     return crypto.load_privatekey(crypto.FILETYPE_PEM, privatekey_pem, cb)
@@ -88,6 +87,18 @@ def _split_x509s(x509Str):
             if line == X509_BEG:
                 curr_pem_block.append(line)
                 inside_x509 = True
+
+
+def dump_private_key(private_key, private_key_passphrase=None):
+    """
+    Parses encrypted key to provide an unencrypted version
+
+    :param private_key: private key
+    :param private_key_passphrase: private key passphrase
+    :return: Unencrypted private key
+    """
+    pkey = _read_privatekey(private_key, private_key_passphrase)
+    return crypto.dump_privatekey(crypto.FILETYPE_PEM, pkey)
 
 
 def get_host_names(certificate):
