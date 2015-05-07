@@ -1,3 +1,10 @@
+neutron-lbaas (2015.1.0-2) unstable; urgency=medium
+
+  * Adds a Breaks+Replaces of neutron-common (<< 2015.1~) to avoid clashes
+    at upgrade time (Closes: #784295).
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 07 May 2015 23:42:47 +0200
+
 neutron-lbaas (2015.1.0-1) unstable; urgency=medium
 
   * New upstream release.

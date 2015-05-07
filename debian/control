@@ -96,6 +96,8 @@ Depends: adduser,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
+Breaks: neutron-common (<< 2015.1~)
+Replaces: neutron-common (<< 2015.1~)
 Description: OpenStack virtual network service - lbass agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
