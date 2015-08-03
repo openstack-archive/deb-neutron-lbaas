@@ -1,6 +1,10 @@
 neutron-lbaas (2015.1.0-3) unstable; urgency=medium
 
   * Rebuilt for SQLAlchemy >= 1.0 (Closes: #794355).
+  * Black list some unit tests:
+    - neutron_lbaas.tests.unit.drivers.haproxy.test_synchronous_driver.TestHaproxyNSDriver.test_cleanup_namespace
+    - neutron_lbaas.tests.unit.drivers.radware.test_v2_plugin_driver.TestLBaaSDriver.test_wf_created_on_first_member_creation
+    - neutron_lbaas.tests.unit.drivers.radware.test_v2_plugin_driver.TestLBaaSDriverRestClient.test_flip_servers
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 03 Aug 2015 08:30:56 +0000
 
