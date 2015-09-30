@@ -26,7 +26,7 @@ from neutron_lbaas.common.tls_utils import cert_parser
 from neutron_lbaas.services.loadbalancer import constants
 from neutron_lbaas.services.loadbalancer import data_models
 
-CERT_MANAGER_PLUGIN = cert_manager.CERT_MANAGER_PLUGIN
+CERT_MANAGER_PLUGIN = cert_manager.get_backend()
 
 PROTOCOL_MAP = {
     constants.PROTOCOL_TCP: 'tcp',
@@ -291,12 +291,12 @@ def _transform_pool(pool):
     members = [_transform_member(x)
                for x in pool.members if _include_member(x)]
     ret_value['members'] = members
-    if pool.healthmonitor:
+    if pool.healthmonitor and pool.healthmonitor.admin_state_up:
         ret_value['health_monitor'] = _transform_health_monitor(
             pool.healthmonitor)
-    if pool.sessionpersistence:
+    if pool.session_persistence:
         ret_value['session_persistence'] = _transform_session_persistence(
-            pool.sessionpersistence)
+            pool.session_persistence)
     return ret_value
 
 
@@ -375,7 +375,7 @@ def _expand_expected_codes(codes):
         elif '-' in code:
             low, hi = code.split('-')[:2]
             retval.update(
-                str(i) for i in six.moves.xrange(int(low), int(hi) + 1))
+                str(i) for i in six.moves.range(int(low), int(hi) + 1))
         else:
             retval.add(code)
     return retval

@@ -15,22 +15,22 @@
 # limitations under the License.
 
 import copy
+from datetime import datetime
 
 import mock
 from neutron.api import extensions
 from neutron.api.v2 import attributes
 from neutron import context
 from neutron.db import agents_db
-from neutron.db import servicetype_db as st_db
 from neutron.extensions import agent
 from neutron import manager
 from neutron.plugins.common import constants as plugin_const
+from neutron.tests.common import helpers
 from neutron.tests.unit.api import test_extensions
+from neutron.tests.unit.db import test_agentschedulers_db
 import neutron.tests.unit.extensions
 from neutron.tests.unit.extensions import test_agent
-from neutron.tests.unit.plugins.openvswitch import test_agent_scheduler
-from oslo_config import cfg
-from oslo_utils import timeutils
+import six
 from webob import exc
 
 from neutron_lbaas.drivers.haproxy import plugin_driver
@@ -43,7 +43,7 @@ LBAAS_HOSTA = 'hosta'
 extensions_path = ':'.join(neutron.tests.unit.extensions.__path__)
 
 
-class AgentSchedulerTestMixIn(test_agent_scheduler.AgentSchedulerTestMixIn):
+class AgentSchedulerTestMixIn(test_agentschedulers_db.AgentSchedulerTestMixIn):
     def _list_loadbalancers_hosted_by_agent(
             self, agent_id, expected_code=exc.HTTPOk.code, admin_context=True):
         path = "/agents/%s/%s.%s" % (agent_id,
@@ -86,30 +86,25 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
             callback = agents_db.AgentExtRpcCallback()
             callback.report_state(self.adminContext,
                                   agent_state={'agent_state': lbaas_hosta},
-                                  time=timeutils.strtime())
+                                  time=datetime.utcnow().isoformat())
             callback.report_state(self.adminContext,
                                   agent_state={'agent_state': lbaas_hostb},
-                                  time=timeutils.strtime())
+                                  time=datetime.utcnow().isoformat())
             res += [lbaas_hosta, lbaas_hostb]
         return res
 
     def setUp(self):
         # Save the global RESOURCE_ATTRIBUTE_MAP
         self.saved_attr_map = {}
-        for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
-            self.saved_attr_map[resource] = attrs.copy()
+        for res, attrs in six.iteritems(attributes.RESOURCE_ATTRIBUTE_MAP):
+            self.saved_attr_map[res] = attrs.copy()
         service_plugins = {
             'lb_plugin_name': test_db_loadbalancerv2.DB_LB_PLUGIN_CLASS}
 
         # default provider should support agent scheduling
-        cfg.CONF.set_override(
-            'service_provider',
+        self.set_override(
             [('LOADBALANCERV2:lbaas:neutron_lbaas.drivers.haproxy.'
-              'plugin_driver.HaproxyOnHostPluginDriver:default')],
-            'service_providers')
-
-        # need to reload provider configuration
-        st_db.ServiceTypeManager._instance = None
+              'plugin_driver.HaproxyOnHostPluginDriver:default')])
 
         super(LBaaSAgentSchedulerTestCase, self).setUp(
             self.plugin_str, service_plugins=service_plugins)
@@ -162,7 +157,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
                 plugin_driver.HaproxyOnHostPluginDriver.device_driver
             ]},
             'agent_type': lb_const.AGENT_TYPE_LOADBALANCERV2}
-        self._register_one_agent_state(lbaas_hosta)
+        helpers._register_agent(lbaas_hosta)
         with self.loadbalancer() as loadbalancer:
             lbaas_agent = self._get_lbaas_agent_hosting_loadbalancer(
                 loadbalancer['loadbalancer']['id'])
@@ -193,7 +188,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
                 plugin_driver.HaproxyOnHostPluginDriver.device_driver
             ]},
             'agent_type': lb_const.AGENT_TYPE_LOADBALANCERV2}
-        self._register_one_agent_state(lbaas_hosta)
+        helpers._register_agent(lbaas_hosta)
         is_agent_down_str = 'neutron.db.agents_db.AgentDbMixin.is_agent_down'
         with mock.patch(is_agent_down_str) as mock_is_agent_down:
             mock_is_agent_down.return_value = False

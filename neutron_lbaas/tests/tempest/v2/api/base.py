@@ -14,20 +14,23 @@
 
 import os
 import time
+
 from neutron.i18n import _, _LI
+from oslo_log import log as logging
+from tempest_lib import exceptions
+
+# from neutron_lbaas.tests.tempest.lib import clients as tempest_clients
+from neutron_lbaas.tests.tempest.lib import config
+from neutron_lbaas.tests.tempest.v1.api import base
 from neutron_lbaas.tests.tempest.v2.clients import health_monitors_client
 from neutron_lbaas.tests.tempest.v2.clients import listeners_client
 from neutron_lbaas.tests.tempest.v2.clients import load_balancers_client
 from neutron_lbaas.tests.tempest.v2.clients import members_client
 from neutron_lbaas.tests.tempest.v2.clients import pools_client
 
-from tempest.api.network import base
-from tempest import clients as tempest_clients
-from tempest import config
-from tempest import exceptions
-from tempest.openstack.common import log as logging
-
 CONF = config.CONF
+
+LOG = logging.getLogger(__name__)
 
 # Use local tempest conf if one is available.
 # This usually means we're running tests outside of devstack
@@ -37,28 +40,33 @@ if os.path.exists('./tests/tempest/etc/dev_tempest.conf'):
 
 class BaseTestCase(base.BaseNetworkTest):
 
+    # This class picks non-admin credentials and run the tempest tests
+
     _lbs_to_delete = []
 
     @classmethod
     def resource_setup(cls):
         super(BaseTestCase, cls).resource_setup()
 
-        credentials = cls.isolated_creds.get_primary_creds()
-        mgr = tempest_clients.Manager(credentials=credentials)
-        auth_provider = mgr.get_auth_provider(credentials)
+        # credentials = cls.isolated_creds.get_primary_creds()
+        # mgr = tempest_clients.Manager(credentials=credentials)
+        mgr = cls.get_client_manager()
+        # auth_provider = mgr.get_auth_provider(credentials)
+        auth_provider = mgr.auth_provider
         client_args = [auth_provider, 'network', 'regionOne']
 
-        cls.load_balancers_client = \
-            load_balancers_client.LoadBalancersClientJSON(*client_args)
-        cls.listeners_client = \
-            listeners_client.ListenersClientJSON(*client_args)
+        cls.load_balancers_client = (
+            load_balancers_client.LoadBalancersClientJSON(*client_args))
+        cls.listeners_client = (
+            listeners_client.ListenersClientJSON(*client_args))
         cls.pools_client = pools_client.PoolsClientJSON(*client_args)
         cls.members_client = members_client.MembersClientJSON(*client_args)
-        cls.health_monitors_client = \
-            health_monitors_client.HealthMonitorsClientJSON(*client_args)
+        cls.health_monitors_client = (
+            health_monitors_client.HealthMonitorsClientJSON(*client_args))
 
     @classmethod
     def resource_cleanup(cls):
+
         for lb_id in cls._lbs_to_delete:
             try:
                 lb = cls.load_balancers_client.get_load_balancer_status_tree(
@@ -87,6 +95,9 @@ class BaseTestCase(base.BaseNetworkTest):
                 cls._wait_for_load_balancer_status(lb_id)
             cls._try_delete_resource(
                 cls.load_balancers_client.delete_load_balancer, lb_id)
+
+        for lb_id in cls._lbs_to_delete:
+            cls._wait_for_load_balancer_status(lb_id, delete=True)
         super(BaseTestCase, cls).resource_cleanup()
 
     @classmethod
@@ -141,7 +152,7 @@ class BaseTestCase(base.BaseNetworkTest):
                                        operating_status='ONLINE',
                                        delete=False):
         interval_time = 10
-        timeout = 300
+        timeout = 600
         end_time = time.time() + timeout
         lb = {}
         while time.time() < end_time:
@@ -318,3 +329,39 @@ class BaseTestCase(base.BaseNetworkTest):
             case_name=cls.__name__
         )
         return name
+
+
+class BaseAdminTestCase(BaseTestCase):
+
+    # This class picks admin credentials and run the tempest tests
+
+    @classmethod
+    def resource_setup(cls):
+
+        super(BaseAdminTestCase, cls).resource_setup()
+
+        # credentials = cls.isolated_creds.get_primary_creds()
+        # mgr = tempest_clients.Manager(credentials=credentials)
+        mgr = cls.get_client_manager(credential_type='admin')
+        # auth_provider = mgr.get_auth_provider(credentials)
+        auth_provider_admin = mgr.auth_provider
+
+        # credentials_admin = cls.isolated_creds.get_admin_creds()
+        # mgr_admin = tempest_clients.Manager(credentials=credentials_admin)
+        # auth_provider_admin = mgr_admin.get_auth_provider(credentials_admin)
+        client_args = [auth_provider_admin, 'network', 'regionOne']
+
+        cls.load_balancers_client = (
+            load_balancers_client.LoadBalancersClientJSON(*client_args))
+        cls.listeners_client = (
+            listeners_client.ListenersClientJSON(*client_args))
+        cls.pools_client = (
+            pools_client.PoolsClientJSON(*client_args))
+        cls.members_client = (
+            members_client.MembersClientJSON(*client_args))
+        cls.health_monitors_client = (
+            health_monitors_client.HealthMonitorsClientJSON(*client_args))
+
+    @classmethod
+    def resource_cleanup(cls):
+        super(BaseAdminTestCase, cls).resource_cleanup()

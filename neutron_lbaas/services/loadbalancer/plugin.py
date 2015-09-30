@@ -40,7 +40,7 @@ from neutron_lbaas.services.loadbalancer import agent_scheduler
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 from neutron_lbaas.services.loadbalancer import data_models
 LOG = logging.getLogger(__name__)
-CERT_MANAGER_PLUGIN = neutron_lbaas.common.cert_manager.CERT_MANAGER_PLUGIN
+CERT_MANAGER_PLUGIN = neutron_lbaas.common.cert_manager.get_backend()
 
 
 def verify_lbaas_mutual_exclusion():
@@ -56,6 +56,12 @@ def verify_lbaas_mutual_exclusion():
         raise SystemExit(1)
 
 
+def add_provider_configuration(type_manager, service_type):
+    type_manager.add_provider_configuration(
+        service_type,
+        pconf.ProviderConfiguration('neutron_lbaas'))
+
+
 class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
                          agent_scheduler.LbaasAgentSchedulerDbMixin):
     """Implementation of the Neutron Loadbalancer Service Plugin.
@@ -67,6 +73,7 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
     supported_extension_aliases = ["lbaas",
                                    "lbaas_agent_scheduler",
                                    "service-type"]
+    path_prefix = lb_ext.LOADBALANCER_PREFIX
 
     # lbaas agent notifiers to handle agent update operations;
     # can be updated by plugin drivers while loading;
@@ -76,7 +83,10 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
     def __init__(self):
         """Initialization for the loadbalancer service plugin."""
         self.service_type_manager = st_db.ServiceTypeManager.get_instance()
+        add_provider_configuration(
+            self.service_type_manager, constants.LOADBALANCER)
         self._load_drivers()
+        super(LoadBalancerPlugin, self).subscribe()
 
     def _load_drivers(self):
         """Loads plugin-drivers specified in configuration."""
@@ -87,9 +97,7 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
         # service_base.load_drivers to correctly verify
         verify_lbaas_mutual_exclusion()
 
-        # we're at the point when extensions are not loaded yet
-        # so prevent policy from being loaded
-        ctx = ncontext.get_admin_context(load_admin_roles=False)
+        ctx = ncontext.get_admin_context()
         # stop service in case provider was removed, but resources were not
         self._check_orphan_pool_associations(ctx, self.drivers.keys())
 
@@ -373,6 +381,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
     supported_extension_aliases = ["lbaasv2",
                                    "lbaas_agent_schedulerv2",
                                    "service-type"]
+    path_prefix = loadbalancerv2.LOADBALANCERV2_PREFIX
 
     agent_notifiers = (
         agent_scheduler_v2.LbaasAgentSchedulerDbMixin.agent_notifiers)
@@ -381,7 +390,10 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
         """Initialization for the loadbalancer service plugin."""
         self.db = ldbv2.LoadBalancerPluginDbv2()
         self.service_type_manager = st_db.ServiceTypeManager.get_instance()
+        add_provider_configuration(
+            self.service_type_manager, constants.LOADBALANCERV2)
         self._load_drivers()
+        self.db.subscribe()
 
     def _load_drivers(self):
         """Loads plugin-drivers specified in configuration."""
@@ -392,9 +404,7 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
         # service_base.load_drivers to correctly verify
         verify_lbaas_mutual_exclusion()
 
-        # we're at the point when extensions are not loaded yet
-        # so prevent policy from being loaded
-        ctx = ncontext.get_admin_context(load_admin_roles=False)
+        ctx = ncontext.get_admin_context()
         # stop service in case provider was removed, but resources were not
         self._check_orphan_loadbalancer_associations(ctx, self.drivers.keys())
 
@@ -500,14 +510,18 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
     def create_loadbalancer(self, context, loadbalancer):
         loadbalancer = loadbalancer.get('loadbalancer')
         provider_name = self._get_provider_name(loadbalancer)
-        lb_db = self.db.create_loadbalancer(context, loadbalancer)
+        driver = self.drivers[provider_name]
+        lb_db = self.db.create_loadbalancer(
+            context, loadbalancer,
+            allocate_vip=not driver.load_balancer.allocates_vip)
         self.service_type_manager.add_resource_association(
             context,
             constants.LOADBALANCERV2,
             provider_name, lb_db.id)
-        driver = self.drivers[provider_name]
-        self._call_driver_operation(
-            context, driver.load_balancer.create, lb_db)
+        create_method = (driver.load_balancer.create_and_allocate_vip
+                         if driver.load_balancer.allocates_vip
+                         else driver.load_balancer.create)
+        self._call_driver_operation(context, create_method, lb_db)
         return self.db.get_loadbalancer(context, lb_db.id).to_api_dict()
 
     def update_loadbalancer(self, context, id, loadbalancer):
@@ -554,10 +568,17 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
             cert_container = None
             try:
                 cert_container = CERT_MANAGER_PLUGIN.CertManager.get_cert(
-                    container_ref, check_only=True)
-            except Exception:
-                raise loadbalancerv2.TLSContainerNotFound(
-                    container_id=container_ref)
+                    container_ref,
+                    resource_ref=self._get_service_url(listener))
+            except Exception as e:
+                if hasattr(e, 'status_code') and e.status_code == 404:
+                    raise loadbalancerv2.TLSContainerNotFound(
+                        container_id=container_ref)
+                else:
+                    # Could be a keystone configuration error...
+                    raise loadbalancerv2.CertManagerError(
+                        ref=container_ref, reason=e.message
+                    )
 
             try:
                 cert_parser.validate_cert(
@@ -567,6 +588,8 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
                         cert_container.get_private_key_passphrase()),
                     intermediates=cert_container.get_intermediates())
             except Exception as e:
+                CERT_MANAGER_PLUGIN.CertManager.delete_cert(
+                    container_ref, self._get_service_url(listener))
                 raise loadbalancerv2.TLSContainerInvalid(
                     container_id=container_ref, reason=str(e))
 
@@ -575,31 +598,39 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
                 validate_tls_container(container_ref)
 
         to_validate = []
-        if not listener['default_tls_container_id']:
+        if not listener['default_tls_container_ref']:
             raise loadbalancerv2.TLSDefaultContainerNotSpecified()
         if not curr_listener:
-            to_validate.extend([listener['default_tls_container_id']])
-            to_validate.extend(listener['sni_container_ids'])
+            to_validate.extend([listener['default_tls_container_ref']])
+            to_validate.extend(listener['sni_container_refs'])
         elif curr_listener['provisioning_status'] == constants.ERROR:
             to_validate.extend(curr_listener['default_tls_container_id'])
             to_validate.extend([
-                    container.tls_container_id for container in (
-                        curr_listener['sni_containers'])])
+                container['tls_container_id'] for container in (
+                    curr_listener['sni_containers'])])
         else:
             if (curr_listener['default_tls_container_id'] !=
-                    listener['default_tls_container_id']):
-                to_validate.extend(listener['default_tls_container_id'])
+                    listener['default_tls_container_ref']):
+                to_validate.extend(listener['default_tls_container_ref'])
 
-            if (listener['sni_container_ids'] is not None and
+            if (listener['sni_container_refs'] is not None and
                     [container['tls_container_id'] for container in (
                         curr_listener['sni_containers'])] !=
-                    listener['sni_container_ids']):
-                to_validate.extend(listener['sni_container_ids'])
+                    listener['sni_container_refs']):
+                to_validate.extend(listener['sni_container_refs'])
 
         if len(to_validate) > 0:
             validate_tls_containers(to_validate)
 
         return len(to_validate) > 0
+
+    def _get_service_url(self, listener):
+        # Format: <servicename>://<region>/<resource>/<object_id>
+        return "{0}://{1}/{2}/{3}".format(
+            cfg.CONF.service_auth.service_name,
+            cfg.CONF.service_auth.region,
+            constants.LOADBALANCER,
+            listener.get('loadbalancer_id'))
 
     def create_listener(self, context, listener):
         listener = listener.get('listener')
@@ -631,13 +662,15 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
         try:
             curr_listener = curr_listener_db.to_dict()
 
-            default_tls_container_id = listener.get(
-                'default_tls_container_id')
-            sni_container_ids = listener.get('sni_container_ids')
-            if not default_tls_container_id:
-                listener['default_tls_container_id'] = (
+            default_tls_container_ref = listener.get(
+                'default_tls_container_ref')
+            sni_container_refs = listener.get('sni_container_refs')
+            if not default_tls_container_ref:
+                listener['default_tls_container_ref'] = (
+                    # NOTE(blogan): not changing to ref bc this dictionary is
+                    # created from a data model
                     curr_listener['default_tls_container_id'])
-            if not sni_container_ids:
+            if not sni_container_refs:
                 listener['sni_container_ids'] = [
                     container.tls_container_id for container in (
                         curr_listener['sni_containers'])]
@@ -646,7 +679,6 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
             if curr_listener['protocol'] == lb_const.PROTOCOL_TERMINATED_HTTPS:
                 tls_containers_changed = self._validate_tls(
                     listener, curr_listener=curr_listener)
-
             listener_db = self.db.update_listener(
                 context, id, listener,
                 tls_containers_changed=tls_containers_changed)
@@ -1039,7 +1071,8 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
             if obj.provisioning_status == constants.ERROR:
                 return True
         if "operating_status" not in exclude:
-            if obj.operating_status != lb_const.ONLINE:
+            if ((obj.operating_status != lb_const.ONLINE) and
+                (obj.operating_status != lb_const.NO_MONITOR)):
                 return True
         return False
 

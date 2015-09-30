@@ -18,14 +18,15 @@ from neutron.api import extensions
 from neutron.api.v2 import attributes
 from neutron.common import constants
 from neutron import context
-from neutron.db import servicetype_db as st_db
 from neutron.extensions import agent
 from neutron import manager
 from neutron.plugins.common import constants as plugin_const
+from neutron.tests.common import helpers
 from neutron.tests.unit.api import test_extensions
+from neutron.tests.unit.db import test_agentschedulers_db
 from neutron.tests.unit.extensions import test_agent
-from neutron.tests.unit.plugins.openvswitch import test_agent_scheduler
 from oslo_config import cfg
+import six
 from webob import exc
 
 from neutron_lbaas.extensions import lbaas_agentscheduler
@@ -36,7 +37,7 @@ from neutron_lbaas.tests.unit.db.loadbalancer import test_db_loadbalancer
 LBAAS_HOSTA = 'hosta'
 
 
-class AgentSchedulerTestMixIn(test_agent_scheduler.AgentSchedulerTestMixIn):
+class AgentSchedulerTestMixIn(test_agentschedulers_db.AgentSchedulerTestMixIn):
     def _list_pools_hosted_by_lbaas_agent(self, agent_id,
                                           expected_code=exc.HTTPOk.code,
                                           admin_context=True):
@@ -66,21 +67,15 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
     def setUp(self):
         # Save the global RESOURCE_ATTRIBUTE_MAP
         self.saved_attr_map = {}
-        for resource, attrs in attributes.RESOURCE_ATTRIBUTE_MAP.iteritems():
-            self.saved_attr_map[resource] = attrs.copy()
+        for res, attrs in six.iteritems(attributes.RESOURCE_ATTRIBUTE_MAP):
+            self.saved_attr_map[res] = attrs.copy()
         service_plugins = {
             'lb_plugin_name': test_db_loadbalancer.DB_LB_PLUGIN_KLASS}
 
-        #default provider should support agent scheduling
-        cfg.CONF.set_override(
-            'service_provider',
-            [('LOADBALANCER:lbaas:neutron_lbaas.services.'
+        # default provider should support agent scheduling
+        self.set_override([('LOADBALANCER:lbaas:neutron_lbaas.services.'
               'loadbalancer.drivers.haproxy.plugin_driver.'
-              'HaproxyOnHostPluginDriver:default')],
-            'service_providers')
-
-        # need to reload provider configuration
-        st_db.ServiceTypeManager._instance = None
+              'HaproxyOnHostPluginDriver:default')])
 
         super(LBaaSAgentSchedulerTestCase, self).setUp(
             self.plugin_str, service_plugins=service_plugins)
@@ -124,7 +119,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
             'topic': 'LOADBALANCER_AGENT',
             'configurations': {'device_drivers': ['haproxy_ns']},
             'agent_type': constants.AGENT_TYPE_LOADBALANCER}
-        self._register_one_agent_state(lbaas_hosta)
+        helpers._register_agent(lbaas_hosta)
         with self.pool() as pool:
             lbaas_agent = self._get_lbaas_agent_hosting_pool(
                 pool['pool']['id'])
@@ -155,7 +150,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
             'topic': 'LOADBALANCER_AGENT',
             'configurations': {'device_drivers': ['haproxy_ns']},
             'agent_type': constants.AGENT_TYPE_LOADBALANCER}
-        self._register_one_agent_state(lbaas_hosta)
+        helpers._register_agent(lbaas_hosta)
         is_agent_down_str = 'neutron.db.agents_db.AgentDbMixin.is_agent_down'
         with mock.patch(is_agent_down_str) as mock_is_agent_down:
             mock_is_agent_down.return_value = False
@@ -215,3 +210,15 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
                 'fake_id',
                 expected_code=exc.HTTPForbidden.code,
                 admin_context=False)
+
+
+class LeastPoolAgentSchedulerTestCase(LBaaSAgentSchedulerTestCase):
+
+    def setUp(self):
+        # Setting LeastPoolAgentScheduler as scheduler
+        cfg.CONF.set_override(
+            'loadbalancer_pool_scheduler_driver',
+            'neutron_lbaas.services.loadbalancer.'
+            'agent_scheduler.LeastPoolAgentScheduler')
+
+        super(LeastPoolAgentSchedulerTestCase, self).setUp()

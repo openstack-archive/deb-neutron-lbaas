@@ -1,4 +1,4 @@
-# Copyright 2014 Citrix Systems
+# Copyright 2015 Citrix Systems
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -74,7 +74,7 @@ class ManagerTest(object):
         self.delete_failure(model)
 
     def _check_success_completion(self):
-        """Check if sucess_completion is called"""
+        """Check if success_completion is called"""
         successful_completion_mock = self.successful_completion_mock
         successful_completion_mock.assert_called_once_with(
             mock.ANY, self.model)

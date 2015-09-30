@@ -15,25 +15,29 @@
 
 import contextlib
 import copy
+import exceptions as ex
 import mock
 import six
 
 from neutron.api import extensions
 from neutron.api.v2 import attributes
 from neutron.common import config
+from neutron.common import constants as n_constants
+from neutron.common import exceptions as n_exc
 from neutron import context
 import neutron.db.l3_db  # noqa
-from neutron.db import servicetype_db as sdb
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests.unit.db import test_db_base_plugin_v2
 from oslo_config import cfg
+from oslo_utils import uuidutils
 import testtools
 import webob.exc
 
+from neutron import manager
 from neutron_lbaas.common.cert_manager import cert_manager
 from neutron_lbaas.common import exceptions
 from neutron_lbaas.db.loadbalancer import models
+from neutron_lbaas.drivers.logging_noop import driver as noop_driver
 import neutron_lbaas.extensions
 from neutron_lbaas.extensions import loadbalancerv2
 from neutron_lbaas.services.loadbalancer import constants as lb_const
@@ -56,7 +60,7 @@ _subnet_id = "0c798ed8-33ba-11e2-8b28-000c291c4d14"
 
 class LbaasTestMixin(object):
     resource_prefix_map = dict(
-        (k, constants.COMMON_PREFIXES[constants.LOADBALANCERV2])
+        (k, loadbalancerv2.LOADBALANCERV2_PREFIX)
         for k in loadbalancerv2.RESOURCE_ATTRIBUTE_MAP.keys()
     )
 
@@ -82,7 +86,7 @@ class LbaasTestMixin(object):
     def _get_listener_optional_args(self):
         return ('name', 'description', 'default_pool_id', 'loadbalancer_id',
                 'connection_limit', 'admin_state_up',
-                'default_tls_container_id', 'sni_container_ids')
+                'default_tls_container_ref', 'sni_container_refs')
 
     def _create_listener(self, fmt, protocol, protocol_port, loadbalancer_id,
                          expected_res_status=None, **kwargs):
@@ -305,11 +309,8 @@ class LbaasPluginDbTestCase(LbaasTestMixin, base.NeutronDbPluginV2TestCase):
             lbaas_provider = (
                 constants.LOADBALANCERV2 +
                 ':lbaas:' + NOOP_DRIVER_CLASS + ':default')
-        cfg.CONF.set_override('service_provider',
-                              [lbaas_provider],
-                              'service_providers')
-        # force service type manager to reload configuration:
-        sdb.ServiceTypeManager._instance = None
+        # override the default service provider
+        self.set_override([lbaas_provider])
 
         # removing service-type because it resides in neutron and tests
         # dont care
@@ -657,6 +658,65 @@ class LbaasLoadBalancerTests(LbaasPluginDbTestCase):
                             self.assertEqual(body['loadbalancer'][k],
                                              expected_values[k])
 
+    def test_port_delete_via_port_api(self):
+        port = {
+            'id': 'my_port_id',
+            'device_owner': n_constants.DEVICE_OWNER_LOADBALANCERV2
+        }
+        ctx = context.get_admin_context()
+        port['device_owner'] = n_constants.DEVICE_OWNER_LOADBALANCERV2
+        myloadbalancers = [{'name': 'lb1'}]
+        with mock.patch.object(manager.NeutronManager, 'get_plugin') as gp:
+            self.plugin.db.get_loadbalancers = mock.Mock(
+                                               return_value=myloadbalancers)
+            plugin = mock.Mock()
+            gp.return_value = plugin
+            plugin._get_port.return_value = port
+            self.assertRaises(n_exc.ServicePortInUse,
+                              self.plugin.db.prevent_lbaasv2_port_deletion,
+                              ctx,
+                              port['id'])
+
+
+class LoadBalancerDelegateVIPCreation(LbaasPluginDbTestCase):
+
+    def setUp(self):
+        driver_patcher = mock.patch.object(
+            noop_driver.LoggingNoopLoadBalancerManager,
+            'allocates_vip', new_callable=mock.PropertyMock)
+        driver_patcher.start().return_value = True
+        super(LoadBalancerDelegateVIPCreation, self).setUp()
+
+    def test_create_loadbalancer(self):
+        expected = {
+            'name': 'vip1',
+            'description': '',
+            'admin_state_up': True,
+            'provisioning_status': constants.ACTIVE,
+            'operating_status': lb_const.ONLINE,
+            'tenant_id': self._tenant_id,
+            'listeners': [],
+            'provider': 'lbaas'
+        }
+
+        with self.subnet() as subnet:
+            expected['vip_subnet_id'] = subnet['subnet']['id']
+            name = expected['name']
+
+            with self.loadbalancer(name=name, subnet=subnet) as lb:
+                lb_id = lb['loadbalancer']['id']
+                for k in ('id', 'vip_subnet_id'):
+                    self.assertTrue(lb['loadbalancer'].get(k, None))
+
+                self.assertIsNone(lb['loadbalancer'].get('vip_address'))
+                expected['vip_port_id'] = lb['loadbalancer']['vip_port_id']
+                actual = dict((k, v)
+                              for k, v in lb['loadbalancer'].items()
+                              if k in expected)
+                self.assertEqual(actual, expected)
+                self._validate_statuses(lb_id)
+            return lb
+
 
 class ListenerTestBase(LbaasPluginDbTestCase):
     def setUp(self):
@@ -722,6 +782,12 @@ class CertMock(cert_manager.Cert):
         return "mock"
 
 
+class Exceptions(object):
+    def __iter__(self):
+        return self
+    pass
+
+
 class LbaasListenerTests(ListenerTestBase):
 
     def test_create_listener(self, **extras):
@@ -757,7 +823,7 @@ class LbaasListenerTests(ListenerTestBase):
     def test_create_listener_with_tls_no_default_container(self, **extras):
         listener_data = {
             'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
-            'default_tls_container_id': None,
+            'default_tls_container_ref': None,
             'protocol_port': 443,
             'admin_state_up': True,
             'tenant_id': self._tenant_id,
@@ -772,11 +838,24 @@ class LbaasListenerTests(ListenerTestBase):
                         {'listener': listener_data})
 
     def test_create_listener_with_tls_missing_container(self, **extras):
-        default_tls_container_id = uuidutils.generate_uuid()
+        default_tls_container_ref = uuidutils.generate_uuid()
+
+        class ReplaceClass(ex.Exception):
+            def __init__(self, status_code, message):
+                self.status_code = status_code
+                self.message = message
+                pass
+
+        cfg.CONF.set_override('service_name',
+                              'lbaas',
+                              'service_auth')
+        cfg.CONF.set_override('region',
+                              'RegionOne',
+                              'service_auth')
         listener_data = {
             'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
-            'default_tls_container_id': default_tls_container_id,
-            'sni_container_ids': [],
+            'default_tls_container_ref': default_tls_container_ref,
+            'sni_container_refs': [],
             'protocol_port': 443,
             'admin_state_up': True,
             'tenant_id': self._tenant_id,
@@ -784,22 +863,74 @@ class LbaasListenerTests(ListenerTestBase):
         }
         listener_data.update(extras)
 
-        with mock.patch(
-            'neutron_lbaas.services.loadbalancer.plugin.'
-            'CERT_MANAGER_PLUGIN.CertManager.get_cert') as get_cert_mock:
-            get_cert_mock.side_effect = LookupError
+        with contextlib.nested(
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.get_cert'),
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.delete_cert')
+        ) as (get_cert_mock, rm_consumer_mock):
+            ex.Exception = ReplaceClass(status_code=404,
+                                        message='Cert Not Found')
+            get_cert_mock.side_effect = ex.Exception
 
             self.assertRaises(loadbalancerv2.TLSContainerNotFound,
                               self.plugin.create_listener,
                               context.get_admin_context(),
                               {'listener': listener_data})
 
-    def test_create_listener_with_tls_invalid_container(self, **extras):
-        default_tls_container_id = uuidutils.generate_uuid()
+    def test_create_listener_with_tls_invalid_service_acct(self, **extras):
+        default_tls_container_ref = uuidutils.generate_uuid()
         listener_data = {
             'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
-            'default_tls_container_id': default_tls_container_id,
-            'sni_container_ids': [],
+            'default_tls_container_ref': default_tls_container_ref,
+            'sni_container_refs': [],
+            'protocol_port': 443,
+            'admin_state_up': True,
+            'tenant_id': self._tenant_id,
+            'loadbalancer_id': self.lb_id
+        }
+        listener_data.update(extras)
+
+        with contextlib.nested(
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.get_cert'),
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.delete_cert')
+        ) as (get_cert_mock, rm_consumer_mock):
+            get_cert_mock.side_effect = Exception('RandomFailure')
+
+            self.assertRaises(loadbalancerv2.CertManagerError,
+                              self.plugin.create_listener,
+                              context.get_admin_context(),
+                              {'listener': listener_data})
+
+    def test_get_service_url(self):
+        # Format: <servicename>://<region>/<resource>/<object_id>
+        cfg.CONF.set_override('service_name',
+                              'lbaas',
+                              'service_auth')
+        cfg.CONF.set_override('region',
+                              'RegionOne',
+                              'service_auth')
+        listner = {
+            'loadbalancer_id': self.lb_id
+        }
+        self.assertEqual(
+            'lbaas://RegionOne/LOADBALANCER/{0}'.format(self.lb_id),
+            self.plugin._get_service_url(listner))
+
+    def test_create_listener_with_tls_invalid_container(self, **extras):
+        default_tls_container_ref = uuidutils.generate_uuid()
+        cfg.CONF.set_override('service_name',
+                              'lbaas',
+                              'service_auth')
+        cfg.CONF.set_override('region',
+                              'RegionOne',
+                              'service_auth')
+        listener_data = {
+            'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
+            'default_tls_container_ref': default_tls_container_ref,
+            'sni_container_refs': [],
             'protocol_port': 443,
             'admin_state_up': True,
             'tenant_id': self._tenant_id,
@@ -811,8 +942,10 @@ class LbaasListenerTests(ListenerTestBase):
             mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
                        'cert_parser.validate_cert'),
             mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
-                       'CERT_MANAGER_PLUGIN.CertManager.get_cert')
-        ) as (validate_cert_mock, get_cert_mock):
+                       'CERT_MANAGER_PLUGIN.CertManager.get_cert'),
+            mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
+                       'CERT_MANAGER_PLUGIN.CertManager.delete_cert')
+        ) as (validate_cert_mock, get_cert_mock, rm_consumer_mock):
             get_cert_mock.start().return_value = CertMock(
                 'mock_cert')
             validate_cert_mock.side_effect = exceptions.MisMatchedKey
@@ -821,21 +954,24 @@ class LbaasListenerTests(ListenerTestBase):
                               self.plugin.create_listener,
                               context.get_admin_context(),
                               {'listener': listener_data})
+            rm_consumer_mock.assert_called_once_with(
+                listener_data['default_tls_container_ref'],
+                'lbaas://RegionOne/LOADBALANCER/{0}'.format(self.lb_id))
 
     def test_create_listener_with_tls(self, **extras):
-        default_tls_container_id = uuidutils.generate_uuid()
-        sni_tls_container_id_1 = uuidutils.generate_uuid()
-        sni_tls_container_id_2 = uuidutils.generate_uuid()
+        default_tls_container_ref = uuidutils.generate_uuid()
+        sni_tls_container_ref_1 = uuidutils.generate_uuid()
+        sni_tls_container_ref_2 = uuidutils.generate_uuid()
 
         expected = {
             'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
-            'default_tls_container_id': default_tls_container_id,
-            'sni_container_ids': [sni_tls_container_id_1,
-                                  sni_tls_container_id_2]}
+            'default_tls_container_ref': default_tls_container_ref,
+            'sni_container_refs': [sni_tls_container_ref_1,
+                                   sni_tls_container_ref_2]}
 
-        extras['default_tls_container_id'] = default_tls_container_id
-        extras['sni_container_ids'] = [sni_tls_container_id_1,
-                                       sni_tls_container_id_2]
+        extras['default_tls_container_ref'] = default_tls_container_ref
+        extras['sni_container_refs'] = [sni_tls_container_ref_1,
+                                        sni_tls_container_ref_2]
 
         with contextlib.nested(
             mock.patch('neutron_lbaas.services.loadbalancer.plugin.'
@@ -884,18 +1020,18 @@ class LbaasListenerTests(ListenerTestBase):
                                     listener_disabled=True)
 
     def test_update_listener_with_tls(self):
-        default_tls_container_id = uuidutils.generate_uuid()
-        sni_tls_container_id_1 = uuidutils.generate_uuid()
-        sni_tls_container_id_2 = uuidutils.generate_uuid()
-        sni_tls_container_id_3 = uuidutils.generate_uuid()
-        sni_tls_container_id_4 = uuidutils.generate_uuid()
-        sni_tls_container_id_5 = uuidutils.generate_uuid()
+        default_tls_container_ref = uuidutils.generate_uuid()
+        sni_tls_container_ref_1 = uuidutils.generate_uuid()
+        sni_tls_container_ref_2 = uuidutils.generate_uuid()
+        sni_tls_container_ref_3 = uuidutils.generate_uuid()
+        sni_tls_container_ref_4 = uuidutils.generate_uuid()
+        sni_tls_container_ref_5 = uuidutils.generate_uuid()
 
         listener_data = {
             'protocol': lb_const.PROTOCOL_TERMINATED_HTTPS,
-            'default_tls_container_id': default_tls_container_id,
-            'sni_container_ids': [sni_tls_container_id_1,
-                                  sni_tls_container_id_2],
+            'default_tls_container_ref': default_tls_container_ref,
+            'sni_container_refs': [sni_tls_container_ref_1,
+                                   sni_tls_container_ref_2],
             'protocol_port': 443,
             'admin_state_up': True,
             'tenant_id': self._tenant_id,
@@ -916,8 +1052,9 @@ class LbaasListenerTests(ListenerTestBase):
             # Test order and validation behavior.
             listener = self.plugin.create_listener(context.get_admin_context(),
                                                    {'listener': listener_data})
-            self.assertEqual(listener['sni_container_ids'],
-                             [sni_tls_container_id_1, sni_tls_container_id_2])
+            self.assertEqual(listener['sni_container_refs'],
+                             [sni_tls_container_ref_1,
+                              sni_tls_container_ref_2])
 
             # Default container and two other SNI containers
             # Test order and validation behavior.
@@ -925,29 +1062,31 @@ class LbaasListenerTests(ListenerTestBase):
             listener_data.pop('protocol')
             listener_data.pop('provisioning_status')
             listener_data.pop('operating_status')
-            listener_data['sni_container_ids'] = [sni_tls_container_id_3,
-                                                  sni_tls_container_id_4]
+            listener_data['sni_container_refs'] = [sni_tls_container_ref_3,
+                                                   sni_tls_container_ref_4]
             listener = self.plugin.update_listener(
                 context.get_admin_context(),
                 listener['id'],
                 {'listener': listener_data}
             )
-            self.assertEqual(listener['sni_container_ids'],
-                             [sni_tls_container_id_3, sni_tls_container_id_4])
+            self.assertEqual(listener['sni_container_refs'],
+                             [sni_tls_container_ref_3,
+                              sni_tls_container_ref_4])
 
             # Default container, two old SNI containers ordered differently
             # and one new SNI container.
             # Test order and validation behavior.
             listener_data.pop('protocol')
-            listener_data['sni_container_ids'] = [sni_tls_container_id_4,
-                                                  sni_tls_container_id_3,
-                                                  sni_tls_container_id_5]
+            listener_data['sni_container_refs'] = [sni_tls_container_ref_4,
+                                                   sni_tls_container_ref_3,
+                                                   sni_tls_container_ref_5]
             listener = self.plugin.update_listener(context.get_admin_context(),
                                                    listener['id'],
                                                    {'listener': listener_data})
-            self.assertEqual(listener['sni_container_ids'],
-                             [sni_tls_container_id_4, sni_tls_container_id_3,
-                              sni_tls_container_id_5])
+            self.assertEqual(listener['sni_container_refs'],
+                             [sni_tls_container_ref_4,
+                              sni_tls_container_ref_3,
+                              sni_tls_container_ref_5])
 
     def test_delete_listener(self):
         with self.listener(no_delete=True,
@@ -2178,7 +2317,7 @@ class LbaasStatusesTest(MemberTestBase):
             health_monitor = self.deserialize(fmt, res)
             lb_dict['listeners'][-1]['pools'][-1]['health_monitor'] = {
                 'id': health_monitor['healthmonitor']['id']}
-            for i in xrange(0, 3):
+            for i in six.moves.range(0, 3):
                 address = "127.0.0.%i" % oct4
                 oct4 += 1
                 res = self._create_member(fmt, pool_id, address, port,

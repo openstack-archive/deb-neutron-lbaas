@@ -19,9 +19,10 @@ from neutron import context
 from neutron.db import servicetype_db as st_db
 from neutron.extensions import portbindings
 from neutron import manager
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests.unit import testlib_api
+from oslo_utils import uuidutils
+import six
 from six import moves
 from webob import exc
 
@@ -88,7 +89,7 @@ class TestLoadBalancerCallbacks(TestLoadBalancerPluginBase):
         # add 3 pools and 2 vips directly to DB
         # to create 2 "ready" devices and one pool without vip
         pools = []
-        for i in moves.xrange(3):
+        for i in moves.range(3):
             pools.append(ldb.Pool(id=uuidutils.generate_uuid(),
                                   subnet_id=self._subnet_id,
                                   protocol="HTTP",
@@ -323,13 +324,12 @@ class TestLoadBalancerCallbacks(TestLoadBalancerPluginBase):
 
                     db_port = core.get_port(ctx, vip['vip']['port_id'])
 
-                    for k, v in expected.iteritems():
+                    for k, v in six.iteritems(expected):
                         self.assertEqual(db_port[k], v)
 
     def test_plug_vip_port(self):
         exp = {
             'device_owner': 'neutron:' + constants.LOADBALANCER,
-            'device_id': 'c596ce11-db30-5c72-8243-15acaae8690f',
             'admin_state_up': True
         }
         self._update_port_test_helper(
@@ -341,7 +341,6 @@ class TestLoadBalancerCallbacks(TestLoadBalancerPluginBase):
     def test_plug_vip_port_mock_with_host(self):
         exp = {
             'device_owner': 'neutron:' + constants.LOADBALANCER,
-            'device_id': 'c596ce11-db30-5c72-8243-15acaae8690f',
             'admin_state_up': True,
             portbindings.HOST_ID: 'host'
         }

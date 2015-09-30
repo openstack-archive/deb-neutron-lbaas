@@ -7,10 +7,11 @@ function neutron_lbaas_install {
 
 function neutron_agent_lbaas_install_agent_packages {
     if is_ubuntu; then
-        sudo add-apt-repository ppa:vbernat/haproxy-1.5 -y
+        sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu trusty-backports main restricted universe multiverse" -y
         sudo apt-get update
+        sudo apt-get install haproxy -t trusty-backports
     fi
-    if is_ubuntu || is_fedora || is_suse; then
+    if is_fedora || is_suse; then
         install_package haproxy
     fi
 }
@@ -36,6 +37,15 @@ function neutron_lbaas_configure_common {
     elif is_service_enabled $LBAAS_V2; then
         _neutron_service_plugin_class_add $LBAASV2_PLUGIN
         iniset $NEUTRON_CONF DEFAULT service_plugins $Q_SERVICE_PLUGIN_CLASSES
+    fi
+
+    if is_service_enabled $BARBICAN; then
+        # Ensure config is set up properly for use with barbican
+        iniset $NEUTRON_CONF keystone_authtoken auth_uri $AUTH_URI
+        iniset $NEUTRON_CONF keystone_authtoken admin_tenant_name $ADMIN_TENANT_NAME
+        iniset $NEUTRON_CONF keystone_authtoken admin_user $ADMIN_USER
+        iniset $NEUTRON_CONF keystone_authtoken admin_password $ADMIN_PASSWORD
+        iniset $NEUTRON_CONF keystone_authtoken auth_version $AUTH_VERSION
     fi
 
     _neutron_deploy_rootwrap_filters $NEUTRON_LBAAS_DIR

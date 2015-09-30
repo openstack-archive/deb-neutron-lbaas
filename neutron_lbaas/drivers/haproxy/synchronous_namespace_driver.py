@@ -15,21 +15,20 @@
 import os
 import shutil
 import socket
-import uuid
 
 import netaddr
 from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.common import exceptions
-from neutron.common import log
 from neutron import context as ncontext
 from neutron.extensions import portbindings
 from neutron.i18n import _LE, _LW
-from neutron.openstack.common import service
 from neutron.plugins.common import constants
 from oslo_config import cfg
+from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
+from oslo_service import service
 from oslo_utils import excutils
 from oslo_utils import importutils
 
@@ -148,10 +147,6 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
 
     def _build_port_dict(self):
         return {'admin_state_up': True,
-                'device_owner': 'neutron:{0}'.format(
-                    constants.LOADBALANCER),
-                'device_id': str(uuid.uuid5(uuid.NAMESPACE_DNS,
-                                            str(self.conf.host))),
                 portbindings.HOST_ID: self.conf.host}
 
     def _get_state_file_path(self, loadbalancer_id, kind,
@@ -206,8 +201,7 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
                 if host_route['destination'] == "0.0.0.0/0":
                     gw_ip = host_route['nexthop']
                     break
-
-        if gw_ip:
+        else:
             cmd = ['route', 'add', 'default', 'gw', gw_ip]
             ip_wrapper = ip_lib.IPWrapper(namespace=namespace)
             ip_wrapper.netns.execute(cmd, check_exit_code=False)
@@ -328,6 +322,10 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
                     self.plugin.db.update_status(
                         context, self.member.model_class, member.id,
                         operating_status=lb_const.ONLINE)
+                elif status and status == lb_const.NO_CHECK:
+                    self.plugin.db.update_status(
+                        context, self.member.model_class, member.id,
+                        operating_status=lb_const.NO_MONITOR)
                 else:
                     self.plugin.db.update_status(
                         context, self.member.model_class, member.id,
@@ -350,7 +348,7 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
                 if ip_lib.device_exists(device.name):
                     self.vif_driver.unplug(device.name, namespace=namespace)
         except RuntimeError as re:
-            LOG.warn(_LW('An error happend on namespace cleanup: '
+            LOG.warn(_LW('An error happened on namespace cleanup: '
                        '%s') % re.message)
         ns.garbage_collect_namespace()
 
@@ -369,7 +367,7 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
         self._cleanup_namespace(loadbalancer_id)
         self._remove_config_directory(loadbalancer_id)
 
-    @log.log
+    @log_helpers.log_method_call
     def periodic_tasks(self, *args):
         try:
             self._collect_and_store_stats()

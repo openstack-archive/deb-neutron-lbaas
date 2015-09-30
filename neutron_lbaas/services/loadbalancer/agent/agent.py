@@ -22,8 +22,8 @@ from neutron.agent.linux import interface
 from neutron.common import config as common_config
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
-from neutron.openstack.common import service
 from oslo_config import cfg
+from oslo_service import service
 
 from neutron_lbaas.services.loadbalancer.agent import agent_manager as manager
 
@@ -64,4 +64,4 @@ def main():
         topic=topics.LOADBALANCER_AGENT,
         manager=mgr
     )
-    service.launch(svc).wait()
+    service.launch(cfg.CONF, svc).wait()

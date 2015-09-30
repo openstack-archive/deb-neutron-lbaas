@@ -17,7 +17,11 @@ import contextlib
 
 import mock
 from neutron.api import extensions
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import config
+from neutron.common import constants as n_constants
 from neutron.common import exceptions as n_exc
 from neutron import context
 from neutron.db import servicetype_db as sdb
@@ -25,7 +29,6 @@ from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services import provider_configuration as pconf
 from neutron.tests.unit.db import test_db_base_plugin_v2
-from oslo_config import cfg
 import testtools
 import webob.exc
 
@@ -109,7 +112,7 @@ class NoopLbaaSDriver(abstract_driver.LoadBalancerAbstractDriver):
 
 class LoadBalancerTestMixin(object):
     resource_prefix_map = dict(
-        (k, constants.COMMON_PREFIXES[constants.LOADBALANCER])
+        (k, loadbalancer.LOADBALANCER_PREFIX)
         for k in loadbalancer.RESOURCE_ATTRIBUTE_MAP.keys()
     )
 
@@ -138,9 +141,9 @@ class LoadBalancerTestMixin(object):
         return vip_res
 
     def _create_pool(self, fmt, name, lb_method, protocol, admin_state_up,
-                     expected_res_status=None, **kwargs):
+                     subnet_id, expected_res_status=None, **kwargs):
         data = {'pool': {'name': name,
-                         'subnet_id': _subnet_id,
+                         'subnet_id': subnet_id,
                          'lb_method': lb_method,
                          'protocol': protocol,
                          'admin_state_up': admin_state_up,
@@ -227,14 +230,16 @@ class LoadBalancerTestMixin(object):
     @contextlib.contextmanager
     def pool(self, fmt=None, name='pool1', lb_method='ROUND_ROBIN',
              protocol='HTTP', admin_state_up=True, do_delete=True,
-             **kwargs):
+             subnet_id=None, **kwargs):
         if not fmt:
             fmt = self.fmt
+        subnet_id = subnet_id or _subnet_id
         res = self._create_pool(fmt,
                                 name,
                                 lb_method,
                                 protocol,
                                 admin_state_up,
+                                subnet_id,
                                 **kwargs)
         if res.status_int >= webob.exc.HTTPClientError.code:
             raise webob.exc.HTTPClientError(
@@ -310,11 +315,9 @@ class LoadBalancerPluginDbTestCase(LoadBalancerTestMixin,
             lbaas_provider = (
                 constants.LOADBALANCER +
                 ':lbaas:' + NOOP_DRIVER_KLASS + ':default')
-        cfg.CONF.set_override('service_provider',
-                              [lbaas_provider],
-                              'service_providers')
-        #force service type manager to reload configuration:
-        sdb.ServiceTypeManager._instance = None
+
+        # override the default service provider
+        self.set_override([lbaas_provider])
 
         # removing service-type because it resides in neutron and tests
         # dont care
@@ -658,10 +661,9 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                  ':haproxy:neutron_lbaas.services.loadbalancer.'
                  'drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver'
                  ':default')
-        cfg.CONF.set_override('service_provider',
-                              [prov1, prov2],
-                              'service_providers')
-        sdb.ServiceTypeManager._instance = None
+        # override the default service provider
+        self.set_override([prov1, prov2])
+
         self.plugin = loadbalancer_plugin.LoadBalancerPlugin()
         with self.subnet() as subnet:
             ctx = context.get_admin_context()
@@ -765,6 +767,25 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
                                  constants.PENDING_CREATE)
             req = self.new_delete_request('pools',
                                           pool['pool']['id'])
+
+    def test_delete_subnet_with_pool(self):
+        registry.subscribe(ldb.is_subnet_in_use_callback,
+                           resources.SUBNET, events.BEFORE_DELETE)
+
+        try:
+            with self.subnet() as subnet:
+                with self.pool(subnet_id=subnet['subnet']['id']):
+                    req = self.new_delete_request('subnets',
+                                                  subnet['subnet']['id'])
+                    res = req.get_response(self.api)
+
+                    self.assertTrue('NeutronError' in res.json)
+                    self.assertEqual('SubnetInUse',
+                                     res.json['NeutronError']['type'])
+                    self.assertEqual(409, res.status_code)
+        finally:
+            registry.unsubscribe(ldb.is_subnet_in_use_callback,
+                                 resources.SUBNET, events.BEFORE_DELETE)
 
     def test_show_pool(self):
         name = "pool1"
@@ -1607,14 +1628,31 @@ class TestLoadBalancer(LoadBalancerPluginDbTestCase):
             qry = ctx.session.query(sdb.ProviderResourceAssociation)
             self.assertEqual(qry.count(), 2)
             #removing driver
-            cfg.CONF.set_override('service_provider',
-                                  [constants.LOADBALANCER +
-                                   ':lbaas1:' + NOOP_DRIVER_KLASS +
-                                   ':default'],
-                                  'service_providers')
-            sdb.ServiceTypeManager._instance = None
+            self.set_override([
+                constants.LOADBALANCER +
+                ':lbaas1:' + NOOP_DRIVER_KLASS +
+                ':default'
+            ])
             # calling _remove_orphan... in constructor
             self.assertRaises(
                 SystemExit,
                 loadbalancer_plugin.LoadBalancerPlugin
             )
+
+    def test_port_delete_via_port_api(self):
+        port = {
+            'id': 'my_port_id',
+            'device_owner': n_constants.DEVICE_OWNER_LOADBALANCER
+        }
+        ctx = context.get_admin_context()
+        port['device_owner'] = n_constants.DEVICE_OWNER_LOADBALANCER
+        myvips = [{'name': 'vip1'}]
+        with mock.patch.object(manager.NeutronManager, 'get_plugin') as gp:
+            self.plugin.get_vips = mock.Mock(return_value=myvips)
+            plugin = mock.Mock()
+            gp.return_value = plugin
+            plugin._get_port.return_value = port
+            self.assertRaises(n_exc.ServicePortInUse,
+                              self.plugin.prevent_lbaas_port_deletion,
+                              ctx,
+                              port['id'])

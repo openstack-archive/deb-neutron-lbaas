@@ -14,6 +14,11 @@
 #    under the License.
 
 from neutron.api.v2 import attributes
+from neutron.callbacks import events
+from neutron.callbacks import registry
+from neutron.callbacks import resources
+from neutron.common import constants as n_constants
+from neutron.common import exceptions as n_exc
 from neutron.db import common_db_mixin as base_db
 from neutron import manager
 from neutron.plugins.common import constants
@@ -93,8 +98,8 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             'network_id': subnet['network_id'],
             'mac_address': attributes.ATTR_NOT_SPECIFIED,
             'admin_state_up': False,
-            'device_id': '',
-            'device_owner': '',
+            'device_id': lb_db.id,
+            'device_owner': n_constants.DEVICE_OWNER_LOADBALANCERV2,
             'fixed_ips': [fixed_ip]
         }
 
@@ -197,7 +202,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                     model_db.operating_status != operating_status):
                 model_db.operating_status = operating_status
 
-    def create_loadbalancer(self, context, loadbalancer):
+    def create_loadbalancer(self, context, loadbalancer, allocate_vip=True):
         with context.session.begin(subtransactions=True):
             self._load_id_and_tenant_id(context, loadbalancer)
             vip_address = loadbalancer.pop('vip_address')
@@ -212,12 +217,15 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
 
         # create port outside of lb create transaction since it can sometimes
         # cause lock wait timeouts
-        try:
-            self._create_port_for_load_balancer(context, lb_db, vip_address)
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                context.session.delete(lb_db)
-                context.session.flush()
+        if allocate_vip:
+            LOG.debug("Plugin will allocate the vip as a neutron port.")
+            try:
+                self._create_port_for_load_balancer(context, lb_db,
+                                                    vip_address)
+            except Exception:
+                with excutils.save_and_reraise_exception():
+                    context.session.delete(lb_db)
+                    context.session.flush()
         return data_models.LoadBalancer.from_sqlalchemy_model(lb_db)
 
     def update_loadbalancer(self, context, id, loadbalancer):
@@ -232,6 +240,23 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             context.session.delete(lb_db)
         if lb_db.vip_port:
             self._core_plugin.delete_port(context, lb_db.vip_port_id)
+
+    def prevent_lbaasv2_port_deletion(self, context, port_id):
+        try:
+            port_db = self._core_plugin._get_port(context, port_id)
+        except n_exc.PortNotFound:
+            return
+        if port_db['device_owner'] == n_constants.DEVICE_OWNER_LOADBALANCERV2:
+            filters = {'vip_port_id': [port_id]}
+            if len(self.get_loadbalancers(context, filters=filters)) > 0:
+                reason = _('has device owner %s') % port_db['device_owner']
+                raise n_exc.ServicePortInUse(port_id=port_db['id'],
+                                             reason=reason)
+
+    def subscribe(self):
+        registry.subscribe(
+            _prevent_lbaasv2_port_delete_callback, resources.PORT,
+            events.BEFORE_DELETE)
 
     def get_loadbalancers(self, context, filters=None):
         lb_dbs = self._get_resources(context, models.LoadBalancer,
@@ -268,7 +293,20 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                     id=listenerpools[0].id,
                     entity_in_use=models.PoolV2.NAME)
 
+    def _convert_api_to_db(self, listener):
+        # NOTE(blogan): Converting the values for db models for now to
+        # limit the scope of this change
+        if 'default_tls_container_ref' in listener:
+            tls_cref = listener.get('default_tls_container_ref')
+            del listener['default_tls_container_ref']
+            listener['default_tls_container_id'] = tls_cref
+        if 'sni_container_refs' in listener:
+            sni_crefs = listener.get('sni_container_refs')
+            del listener['sni_container_refs']
+            listener['sni_container_ids'] = sni_crefs
+
     def create_listener(self, context, listener):
+        self._convert_api_to_db(listener)
         try:
             with context.session.begin(subtransactions=True):
                 self._load_id_and_tenant_id(context, listener)
@@ -298,6 +336,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
 
     def update_listener(self, context, id, listener,
                         tls_containers_changed=False):
+        self._convert_api_to_db(listener)
         with context.session.begin(subtransactions=True):
             listener_db = self._get_resource(context, models.Listener, id)
 
@@ -382,7 +421,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             if session_info:
                 s_p = self._create_session_persistence_db(session_info,
                                                           pool_db.id)
-                pool_db.sessionpersistence = s_p
+                pool_db.session_persistence = s_p
 
             context.session.add(pool_db)
         return data_models.Pool.from_sqlalchemy_model(pool_db)
@@ -492,11 +531,6 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             # do not want listener, members, or healthmonitor in dict
             pool_dict = pool.to_dict(listener=False, members=False,
                                      healthmonitor=False)
-            # have to rename sessionpersistence key to session_persistence
-            # for compatibility with what is acceptable by the extension
-            pool_dict['session_persistence'] = pool_dict.get(
-                'sessionpersistence')
-            del pool_dict['sessionpersistence']
             pool_dict['healthmonitor_id'] = hm_db.id
             self.update_pool(context, pool_id, pool_dict)
             hm_db = self._get_resource(context, models.HealthMonitorV2,
@@ -549,3 +583,13 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                                           loadbalancer_id)
         return data_models.LoadBalancerStatistics.from_sqlalchemy_model(
             loadbalancer.stats)
+
+
+def _prevent_lbaasv2_port_delete_callback(resource, event, trigger, **kwargs):
+    context = kwargs['context']
+    port_id = kwargs['port_id']
+    port_check = kwargs['port_check']
+    lbaasv2plugin = manager.NeutronManager.get_service_plugins().get(
+                         constants.LOADBALANCERV2)
+    if lbaasv2plugin and port_check:
+        lbaasv2plugin.db.prevent_lbaasv2_port_deletion(context, port_id)

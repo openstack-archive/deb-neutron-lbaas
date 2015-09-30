@@ -17,9 +17,10 @@ import mock
 
 from neutron import context
 from neutron.extensions import portbindings
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests.unit import testlib_api
+from oslo_utils import uuidutils
+import six
 from six import moves
 
 from neutron_lbaas.db.loadbalancer import loadbalancer_dbv2 as ldb
@@ -67,7 +68,7 @@ class TestLoadBalancerCallbacks(
         # add 3 load balancers and 2 listeners directly to DB
         # to create 2 "ready" devices and one load balancer without listener
         loadbalancers = []
-        for i in moves.xrange(3):
+        for i in moves.range(3):
             loadbalancers.append(ldb.models.LoadBalancer(
                 id=uuidutils.generate_uuid(), vip_subnet_id=self._subnet_id,
                 provisioning_status=constants.ACTIVE, admin_state_up=True,
@@ -161,6 +162,8 @@ class TestLoadBalancerCallbacks(
 
         with self.loadbalancer() as loadbalancer:
             lb_id = loadbalancer['loadbalancer']['id']
+            if 'device_id' not in expected:
+                expected['device_id'] = lb_id
             self.plugin_instance.db.update_loadbalancer_provisioning_status(
                 context.get_admin_context(),
                 loadbalancer['loadbalancer']['id'])
@@ -168,13 +171,12 @@ class TestLoadBalancerCallbacks(
             db_lb = self.plugin_instance.db.get_loadbalancer(ctx, lb_id)
             func(ctx, port_id=db_lb.vip_port_id, **kwargs)
             db_port = core.get_port(ctx, db_lb.vip_port_id)
-            for k, v in expected.iteritems():
+            for k, v in six.iteritems(expected):
                 self.assertEqual(db_port[k], v)
 
     def test_plug_vip_port(self):
         exp = {
             'device_owner': 'neutron:' + constants.LOADBALANCERV2,
-            'device_id': 'c596ce11-db30-5c72-8243-15acaae8690f',
             'admin_state_up': True
         }
         self._update_port_test_helper(
@@ -186,7 +188,6 @@ class TestLoadBalancerCallbacks(
     def test_plug_vip_port_mock_with_host(self):
         exp = {
             'device_owner': 'neutron:' + constants.LOADBALANCERV2,
-            'device_id': 'c596ce11-db30-5c72-8243-15acaae8690f',
             'admin_state_up': True,
             portbindings.HOST_ID: 'host'
         }

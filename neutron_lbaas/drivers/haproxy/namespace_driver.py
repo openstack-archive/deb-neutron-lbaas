@@ -104,7 +104,7 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
         cleanup_namespace = kwargs.get('cleanup_namespace', False)
         delete_namespace = kwargs.get('delete_namespace', False)
         namespace = get_ns_name(loadbalancer_id)
-        pid_path = self._get_state_file_path(loadbalancer_id, 'pid')
+        pid_path = self._get_state_file_path(loadbalancer_id, 'haproxy.pid')
 
         # kill the process
         kill_pids_in_file(pid_path)
@@ -198,7 +198,7 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
     def create(self, loadbalancer):
         namespace = get_ns_name(loadbalancer.id)
 
-        self._plug(namespace, loadbalancer.vip_port)
+        self._plug(namespace, loadbalancer.vip_port, loadbalancer.vip_address)
         self._spawn(loadbalancer)
 
     def deployable(self, loadbalancer):
@@ -272,10 +272,10 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
         confs_dir = os.path.abspath(os.path.normpath(self.state_path))
         conf_dir = os.path.join(confs_dir, loadbalancer_id)
         if ensure_state_dir:
-            linux_utils.ensure_dir(conf_dir)
+            n_utils.ensure_dir(conf_dir)
         return os.path.join(conf_dir, kind)
 
-    def _plug(self, namespace, port, reuse_existing=True):
+    def _plug(self, namespace, port, vip_address, reuse_existing=True):
         self.plugin_rpc.plug_vip_port(port.id)
 
         interface_name = self.vif_driver.get_device_name(port)
@@ -302,6 +302,12 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
         ]
         self.vif_driver.init_l3(interface_name, cidrs, namespace=namespace)
 
+        # Haproxy socket binding to IPv6 VIP address will fail if this address
+        # is not yet ready(i.e tentative address).
+        if netaddr.IPAddress(vip_address).version == 6:
+            device = ip_lib.IPDevice(interface_name, namespace=namespace)
+            device.addr.wait_until_address_ready(vip_address)
+
         gw_ip = port.fixed_ips[0].subnet.gateway_ip
 
         if not gw_ip:
@@ -310,8 +316,7 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
                 if host_route.destination == "0.0.0.0/0":
                     gw_ip = host_route.nexthop
                     break
-
-        if gw_ip:
+        else:
             cmd = ['route', 'add', 'default', 'gw', gw_ip]
             ip_wrapper = ip_lib.IPWrapper(namespace=namespace)
             ip_wrapper.netns.execute(cmd, check_exit_code=False)
@@ -464,7 +469,7 @@ def kill_pids_in_file(pid_path):
             for pid in pids:
                 pid = pid.strip()
                 try:
-                    linux_utils.execute(['kill', '-9', pid])
+                    linux_utils.execute(['kill', '-9', pid], run_as_root=True)
                 except RuntimeError:
                     LOG.exception(
                         _LE('Unable to kill haproxy process: %s'),

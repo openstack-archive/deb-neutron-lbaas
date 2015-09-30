@@ -30,6 +30,8 @@ from neutron.services import service_base
 
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 
+LOADBALANCERV2_PREFIX = "/lbaas"
+
 
 # Loadbalancer Exceptions
 # This exception is only for a workaround when having v1 and v2 lbaas extension
@@ -118,6 +120,10 @@ class TLSContainerInvalid(nexception.NeutronException):
     message = _("TLS container %(container_id)s is invalid. %(reason)s")
 
 
+class CertManagerError(nexception.NeutronException):
+    message = _("Could not process TLS container %(ref)s, %(reason)s")
+
+
 RESOURCE_ATTRIBUTE_MAP = {
     'loadbalancers': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -182,15 +188,15 @@ RESOURCE_ATTRIBUTE_MAP = {
         'default_pool_id': {'allow_post': False, 'allow_put': False,
                             'validate': {'type:uuid': None},
                             'is_visible': True},
-        'default_tls_container_id': {'allow_post': True,
-                                     'allow_put': True,
-                                     'default': None,
-                                     'validate': {'type:string_or_none': 128},
-                                     'is_visible': True},
-        'sni_container_ids': {'allow_post': True, 'allow_put': True,
-                              'default': None,
-                              'convert_to': attr.convert_to_list,
-                              'is_visible': True},
+        'default_tls_container_ref': {'allow_post': True,
+                                      'allow_put': True,
+                                      'default': None,
+                                      'validate': {'type:string_or_none': 128},
+                                      'is_visible': True},
+        'sni_container_refs': {'allow_post': True, 'allow_put': True,
+                               'default': None,
+                               'convert_to': attr.convert_to_list,
+                               'is_visible': True},
         'connection_limit': {'allow_post': True, 'allow_put': True,
                              'default': -1,
                              'convert_to': attr.convert_to_int,
@@ -403,7 +409,7 @@ class Loadbalancerv2(extensions.ExtensionDescriptor):
             {}, RESOURCE_ATTRIBUTE_MAP)
         action_map = {'loadbalancer': {'stats': 'GET', 'statuses': 'GET'}}
         plural_mappings['members'] = 'member'
-        plural_mappings['sni_container_ids'] = 'sni_container_id'
+        plural_mappings['sni_container_refs'] = 'sni_container_ref'
         attr.PLURALS.update(plural_mappings)
         resources = resource_helper.build_resource_info(
             plural_mappings,
@@ -431,8 +437,7 @@ class Loadbalancerv2(extensions.ExtensionDescriptor):
             resource = extensions.ResourceExtension(
                 collection_name,
                 controller, parent,
-                path_prefix=constants.COMMON_PREFIXES[
-                    constants.LOADBALANCERV2],
+                path_prefix=LOADBALANCERV2_PREFIX,
                 attr_map=params)
             resources.append(resource)
 

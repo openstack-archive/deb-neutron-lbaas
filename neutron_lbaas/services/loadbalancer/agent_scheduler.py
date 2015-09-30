@@ -14,6 +14,7 @@
 #    under the License.
 
 import random
+import sys
 
 from neutron.common import constants
 from neutron.db import agents_db
@@ -21,10 +22,12 @@ from neutron.db import agentschedulers_db
 from neutron.db import model_base
 from neutron.i18n import _LW
 from oslo_log import log as logging
+import six
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import joinedload
 
+from abc import abstractmethod
 from neutron_lbaas.extensions import lbaas_agentscheduler
 
 LOG = logging.getLogger(__name__)
@@ -61,7 +64,7 @@ class LbaasAgentSchedulerDbMixin(agentschedulers_db.AgentSchedulerDbMixin,
         if active is not None:
             query = query.filter_by(admin_state_up=active)
         if filters:
-            for key, value in filters.iteritems():
+            for key, value in six.iteritems(filters):
                 column = getattr(agents_db.Agent, key, None)
                 if column:
                     query = query.filter(column.in_(value))
@@ -79,6 +82,11 @@ class LbaasAgentSchedulerDbMixin(agentschedulers_db.AgentSchedulerDbMixin,
         else:
             return {'pools': []}
 
+    def num_of_pools_on_lbaas_agent(self, context, id):
+        query = context.session.query(PoolLoadbalancerAgentBinding.pool_id)
+        query = query.filter_by(agent_id=id)
+        return query.count()
+
     def get_lbaas_agent_candidates(self, device_driver, active_agents):
         candidates = []
         for agent in active_agents:
@@ -88,8 +96,7 @@ class LbaasAgentSchedulerDbMixin(agentschedulers_db.AgentSchedulerDbMixin,
         return candidates
 
 
-class ChanceScheduler(object):
-    """Allocate a loadbalancer agent for a vip in a random way."""
+class SchedulerBase(object):
 
     def schedule(self, plugin, context, pool, device_driver):
         """Schedule the pool to an active loadbalancer agent if there
@@ -117,7 +124,8 @@ class ChanceScheduler(object):
                          device_driver)
                 return
 
-            chosen_agent = random.choice(candidates)
+            chosen_agent = self._schedule(candidates, plugin, context)
+
             binding = PoolLoadbalancerAgentBinding()
             binding.agent = chosen_agent
             binding.pool_id = pool['id']
@@ -127,3 +135,29 @@ class ChanceScheduler(object):
                       {'pool_id': pool['id'],
                        'agent_id': chosen_agent['id']})
             return chosen_agent
+
+    @abstractmethod
+    def _schedule(self, candidates, plugin, context):
+        pass
+
+
+class ChanceScheduler(SchedulerBase):
+
+    def _schedule(self, candidates, plugin, context):
+        """Allocate a loadbalancer agent for a vip in a random way."""
+        return random.choice(candidates)
+
+
+class LeastPoolAgentScheduler(SchedulerBase):
+
+    def _schedule(self, candidates, plugin, context):
+        """Pick an agent with least number of pools from candidates"""
+        current_min_pool_num = sys.maxint
+        # SchedulerBase.schedule() already checks for empty candidates
+        for tmp_agent in candidates:
+            tmp_pool_num = plugin.num_of_pools_on_lbaas_agent(
+                context, tmp_agent['id'])
+            if current_min_pool_num > tmp_pool_num:
+                current_min_pool_num = tmp_pool_num
+                chosen_agent = tmp_agent
+        return chosen_agent

@@ -15,7 +15,6 @@
 
 import collections
 import contextlib
-import uuid
 
 import mock
 from neutron.common import exceptions
@@ -138,9 +137,6 @@ class TestHaproxyNSDriver(base.BaseTestCase):
     def test_build_port_dict(self):
         self.driver.conf.host = 'host1'
         ret = {'admin_state_up': True,
-               'device_owner': 'neutron:LOADBALANCER',
-               'device_id': str(uuid.uuid5(uuid.NAMESPACE_DNS,
-                                           str(self.conf.host))),
                portbindings.HOST_ID: self.conf.host}
         self.assertEqual(ret, self.driver._build_port_dict())
 
@@ -455,8 +451,8 @@ class TestHaproxyNSDriver(base.BaseTestCase):
             device_exists.return_value = True
             self.driver._cleanup_namespace(self._sample_in_loadbalancer().id)
             device_exists.assert_called_once_with(device.name)
-            vif_driver.unplug.assert_any_calls(
-                [mock.call(device.name, ns_name.return_value)])
+            vif_driver.unplug.assert_any_call(
+                device.name, namespace=ns_name.return_value)
             self.assertEqual(1, vif_driver.unplug.call_count)
 
     def test_kill_processes(self):
