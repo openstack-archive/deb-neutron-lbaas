@@ -1,3 +1,9 @@
+neutron-lbaas (1:8.0.0~b2-1) experimental; urgency=medium
+
+  * New upstream release.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 29 Jan 2016 11:03:24 +0800
+
 neutron-lbaas (1:7.0.0-1) unstable; urgency=medium
 
   * New upstream release.
