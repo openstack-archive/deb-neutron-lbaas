@@ -11,8 +11,30 @@ PYTHONS:=$(shell pyversions -vr)
 	dh $@ --buildsystem=python_distutils --with python2,systemd
 
 override_dh_install:
+	rm -rf $(CURDIR)/debian/tmp
+	python2.7 setup.py install --install-layout=deb --root $(CURDIR)/debian/tmp
+
+	# lbaas_agent.ini
+	mkdir -p $(CURDIR)/debian/neutron-lbaas-agent/etc/neutron
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
+		--output-file $(CURDIR)/debian/neutron-lbaas-agent/etc/neutron/lbaas_agent.ini
+		--wrap-width 140 \
+		--namespace neutron.lbaas.agent \
+		--namespace oslo.log
+
+	# neutron_lbaas.conf
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
+		--output-file $(CURDIR)/debian/neutron-lbaas-agent/etc/neutron/neutron_lbaas.conf \
+		--wrap-width 140 \
+		--namespace neutron.lbaas
+
+	# services_lbaas.conf
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
+		--output-file $(CURDIR)/debian/neutron-lbaas-agent/etc/neutron/services_lbaas.conf \
+		--wrap-width 140 \
+		--namespace neutron.lbaas.service
+
 	dh_install -O--buildsystem=python_distutils --fail-missing
-	install -D -m 0644 etc/neutron_lbaas.conf $(CURDIR)/debian/neutron-lbass/etc/neutron/neutron_lbaas.conf
 
 override_dh_auto_test:
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
