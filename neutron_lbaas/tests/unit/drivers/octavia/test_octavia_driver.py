@@ -81,6 +81,13 @@ class BaseOctaviaDriverTest(test_db_loadbalancerv2.LbaasPluginDbTestCase):
 
 class TestOctaviaDriver(BaseOctaviaDriverTest):
 
+    def test_allocates_vip(self):
+        self.addCleanup(cfg.CONF.clear_override,
+                        'allocates_vip', group='octavia')
+        cfg.CONF.set_override('allocates_vip', True, group='octavia')
+        test_driver = driver.OctaviaDriver(self.plugin)
+        self.assertTrue(test_driver.load_balancer.allocates_vip)
+
     def test_load_balancer_ops(self):
         m = ManagerTest(self, self.driver.load_balancer,
                         self.driver.req)
@@ -98,6 +105,7 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
             'name': lb.name,
             'description': lb.description,
             'enabled': lb.admin_state_up,
+            'project_id': lb.tenant_id,
             'vip': {
                 'subnet_id': lb.vip_subnet_id,
                 'ip_address': lb.vip_address,
@@ -145,12 +153,14 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
             'protocol_port': listener.protocol_port,
             'connection_limit': listener.connection_limit,
             'tls_certificate_id': listener.default_tls_container_id,
-            'sni_containers': sni_containers
+            'sni_containers': sni_containers,
+            'project_id': listener.tenant_id
         }
         m.create(listener, list_url, args)
 
         # Update listener test.
         del args['id']
+        del args['project_id']
         m.update(listener, listener, list_url_id, args)
 
         # Delete listener.
@@ -177,6 +187,7 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
             'enabled': pool.admin_state_up,
             'protocol': pool.protocol,
             'lb_algorithm': pool.lb_algorithm,
+            'project_id': pool.tenant_id
         }
         if pool.session_persistence:
             args['session_persistence'] = {
@@ -187,6 +198,7 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
 
         # Test update pool.
         del args['id']
+        del args['project_id']
         m.update(pool, pool, pool_url_id, args)
 
         # Test pool delete.
@@ -214,6 +226,7 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
             'protocol_port': member.protocol_port,
             'weight': member.weight,
             'subnet_id': member.subnet_id,
+            'project_id': member.tenant_id
         }
         m.create(member, mem_url, args)
 
@@ -253,10 +266,12 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
             'url_path': hm.url_path,
             'expected_codes': hm.expected_codes,
             'enabled': hm.admin_state_up,
+            'project_id': hm.tenant_id
         }
         m.create(hm, hm_url, args)
 
         # Test HM update
+        del args['project_id']
         m.update(hm, hm, hm_url, args)
 
         # Test HM delete
@@ -318,3 +333,20 @@ class TestThreadedDriver(BaseOctaviaDriverTest):
             driver.thread_op(self.driver.load_balancer, self.lb)
             self.fail_completion.assert_called_once_with(self.context, self.lb)
             self.assertEqual(0, self.succ_completion.call_count)
+
+        def test_thread_op_updates_vip_when_vip_delegated(self):
+            cfg.CONF.set_override('allocates_vip', True, group='octavia')
+            expected_vip = '10.1.1.1'
+            self.driver.req.get.side_effect = [
+                {'provisioning_status': 'PENDING_CREATE',
+                 'vip': {'ip_address': ''}},
+                {'provisioning_status': 'ACTIVE',
+                 'vip': {'ip_address': expected_vip}}
+            ]
+            driver.thread_op(self.driver.load_balancer,
+                             self.lb,
+                             lb_create=True)
+            self.succ_completion.assert_called_once_with(self.context, self.lb,
+                                                         delete=False,
+                                                         lb_create=True)
+            self.assertEqual(expected_vip, self.lb.vip_address)

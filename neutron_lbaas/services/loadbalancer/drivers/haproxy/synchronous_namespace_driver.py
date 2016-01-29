@@ -12,15 +12,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.i18n import _LW
 from oslo_log import log as logging
 
+from neutron_lbaas._i18n import _LW
 from neutron_lbaas.drivers.haproxy import synchronous_namespace_driver
 
 LOG = logging.getLogger(__name__)
-LOG.warn(_LW("This path has been deprecated. "
-             "Use neutron_lbaas.drivers.haproxy."
-             "synchronous_namespace_driver instead."))
+LOG.warning(_LW("This path has been deprecated. "
+                "Use neutron_lbaas.drivers.haproxy."
+                "synchronous_namespace_driver instead."))
 
 
 class HaproxyNSDriver(synchronous_namespace_driver.HaproxyNSDriver):

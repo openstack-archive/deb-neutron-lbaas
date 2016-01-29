@@ -17,17 +17,16 @@ from neutron.common import rpc as n_rpc
 from neutron.db import agents_db
 from neutron.services import provider_configuration as provconf
 from oslo_config import cfg
-from oslo_log import log as logging
 import oslo_messaging as messaging
 from oslo_utils import importutils
 
+from neutron_lbaas._i18n import _
 from neutron_lbaas.drivers.common import agent_callbacks
 from neutron_lbaas.drivers import driver_base
 from neutron_lbaas.extensions import lbaas_agentschedulerv2
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 from neutron_lbaas.services.loadbalancer import data_models
 
-LOG = logging.getLogger(__name__)
 
 LB_SCHEDULERS = 'loadbalancer_schedulers'
 
@@ -222,7 +221,7 @@ class PoolManager(driver_base.BasePoolManager):
                                           agent['host'])
 
     def create(self, context, pool):
-        super(PoolManager, self).delete(context, pool)
+        super(PoolManager, self).create(context, pool)
         agent = self.driver.get_loadbalancer_agent(
             context, pool.listener.loadbalancer.id)
         self.driver.agent_rpc.create_pool(context, pool, agent['host'])
@@ -318,7 +317,13 @@ class AgentDriverBase(driver_base.LoadBalancerBaseDriver):
 
         self.agent_rpc = LoadBalancerAgentApi(lb_const.LOADBALANCER_AGENTV2)
 
-        self._set_callbacks_on_plugin()
+        self.agent_endpoints = [
+            agent_callbacks.LoadBalancerCallbacks(self.plugin),
+            agents_db.AgentExtRpcCallback(self.plugin.db)
+        ]
+
+        self.conn = None
+
         # Setting this on the db because the plugin no longer inherts from
         # database classes, the db does.
         self.plugin.db.agent_notifiers.update(
@@ -329,21 +334,16 @@ class AgentDriverBase(driver_base.LoadBalancerBaseDriver):
         self.loadbalancer_scheduler = importutils.import_object(
             lb_sched_driver)
 
-    def _set_callbacks_on_plugin(self):
+    def start_rpc_listeners(self):
         # other agent based plugin driver might already set callbacks on plugin
         if hasattr(self.plugin, 'agent_callbacks'):
             return
 
-        self.plugin.agent_endpoints = [
-            agent_callbacks.LoadBalancerCallbacks(self.plugin),
-            agents_db.AgentExtRpcCallback(self.plugin.db)
-        ]
-        self.plugin.conn = n_rpc.create_connection(new=True)
-        self.plugin.conn.create_consumer(
-            lb_const.LOADBALANCER_PLUGINV2,
-            self.plugin.agent_endpoints,
-            fanout=False)
-        self.plugin.conn.consume_in_threads()
+        self.conn = n_rpc.create_connection()
+        self.conn.create_consumer(lb_const.LOADBALANCER_PLUGINV2,
+                                  self.agent_endpoints,
+                                  fanout=False)
+        return self.conn.consume_in_threads()
 
     def get_loadbalancer_agent(self, context, loadbalancer_id):
         agent = self.plugin.db.get_agent_hosting_loadbalancer(

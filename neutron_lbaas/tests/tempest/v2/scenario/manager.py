@@ -17,7 +17,6 @@
 import subprocess
 
 import netaddr
-from neutron.i18n import _LI, _LW, _LE
 from oslo_log import log
 import six
 from tempest_lib.common.utils import data_utils
@@ -25,6 +24,7 @@ from tempest_lib.common.utils import misc as misc_utils
 from tempest_lib import exceptions as lib_exc
 from tempest_lib import exceptions
 
+from neutron_lbaas._i18n import _LI, _LW, _LE
 from neutron_lbaas.tests.tempest.lib.common import fixed_network
 from neutron_lbaas.tests.tempest.lib.common.utils.linux import remote_client
 from neutron_lbaas.tests.tempest.lib import config
@@ -594,7 +594,7 @@ class NetworkScenarioTest(ScenarioTest):
 
         def cidr_in_use(cidr, tenant_id):
             """
-            :return True if subnet with cidr already exist in tenant
+            :returns: True if subnet with cidr already exist in tenant
                 False else
             """
             cidr_in_use = self._list_subnets(tenant_id=tenant_id, cidr=cidr)
@@ -775,7 +775,7 @@ class NetworkScenarioTest(ScenarioTest):
             try:
                 source.ping_host(dest)
             except lib_exc.SSHExecCommandFailed:
-                LOG.warn(_LW(
+                LOG.warning(_LW(
                     "Failed to ping IP {des} via a ssh connection from: {src}"
                 ).format(des=dest, src=source.ssh_client.host))
                 return not should_succeed

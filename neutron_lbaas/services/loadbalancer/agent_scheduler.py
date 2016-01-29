@@ -20,7 +20,6 @@ from neutron.common import constants
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
 from neutron.db import model_base
-from neutron.i18n import _LW
 from oslo_log import log as logging
 import six
 import sqlalchemy as sa
@@ -28,6 +27,7 @@ from sqlalchemy import orm
 from sqlalchemy.orm import joinedload
 
 from abc import abstractmethod
+from neutron_lbaas._i18n import _LW
 from neutron_lbaas.extensions import lbaas_agentscheduler
 
 LOG = logging.getLogger(__name__)
@@ -114,14 +114,15 @@ class SchedulerBase(object):
 
             active_agents = plugin.get_lbaas_agents(context, active=True)
             if not active_agents:
-                LOG.warn(_LW('No active lbaas agents for pool %s'), pool['id'])
+                LOG.warning(_LW('No active lbaas agents for pool %s'),
+                            pool['id'])
                 return
 
             candidates = plugin.get_lbaas_agent_candidates(device_driver,
                                                            active_agents)
             if not candidates:
-                LOG.warn(_LW('No lbaas agent supporting device driver %s'),
-                         device_driver)
+                LOG.warning(_LW('No lbaas agent supporting device driver %s'),
+                            device_driver)
                 return
 
             chosen_agent = self._schedule(candidates, plugin, context)

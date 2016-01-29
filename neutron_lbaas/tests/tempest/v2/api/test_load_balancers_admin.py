@@ -12,16 +12,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from oslo_log import log as logging
 from tempest_lib.common.utils import data_utils
+from tempest_lib import exceptions as ex
 
 from neutron_lbaas.tests.tempest.lib import config
 from neutron_lbaas.tests.tempest.lib import test
 from neutron_lbaas.tests.tempest.v2.api import base
 
 CONF = config.CONF
-
-LOG = logging.getLogger(__name__)
 
 
 class LoadBalancersTestJSON(base.BaseAdminTestCase):
@@ -61,12 +59,12 @@ class LoadBalancersTestJSON(base.BaseAdminTestCase):
         """
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         admin_lb = self.load_balancers_client.get_load_balancer(
             load_balancer.get('id'))
         self.assertEqual(load_balancer.get('tenant_id'),
                          admin_lb.get('tenant_id'))
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='smoke')
     def test_create_load_balancer_missing_tenant_id_for_other_tenant(self):
@@ -77,20 +75,19 @@ class LoadBalancersTestJSON(base.BaseAdminTestCase):
         """
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertNotEqual(load_balancer.get('tenant_id'),
                             self.subnet['tenant_id'])
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
 
-    @test.attr(type='smoke')
+    @test.attr(type='negative')
     def test_create_load_balancer_empty_tenant_id_field(self):
-        """Test create load balancer with empty tenant_id field"""
-        load_balancer = self.load_balancers_client.create_load_balancer(
-            vip_subnet_id=self.subnet['id'],
-            tenant_id="")
-        self.assertEqual(load_balancer.get('tenant_id'), "")
-        self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
+        """Test create load balancer with empty tenant_id field should fail"""
+        self.assertRaises(ex.BadRequest,
+                          self.load_balancers_client.create_load_balancer,
+                          vip_subnet_id=self.subnet['id'],
+                          wait=False,
+                          tenant_id="")
 
     @test.attr(type='smoke')
     def test_create_load_balancer_for_another_tenant(self):
@@ -99,6 +96,6 @@ class LoadBalancersTestJSON(base.BaseAdminTestCase):
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'],
             tenant_id=tenant)
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('tenant_id'), tenant)
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])

@@ -14,6 +14,7 @@
 #    under the License.
 
 
+from neutron.api.v2 import attributes as attr
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.db import servicetype_db as st_db
@@ -21,6 +22,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext import orderinglist
 from sqlalchemy import orm
 
+from neutron_lbaas._i18n import _
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 
 
@@ -85,6 +87,7 @@ class MemberV2(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     subnet_id = sa.Column(sa.String(36), nullable=True)
     provisioning_status = sa.Column(sa.String(16), nullable=False)
     operating_status = sa.Column(sa.String(16), nullable=False)
+    name = sa.Column(sa.String(attr.NAME_MAX_LEN), nullable=True)
 
     @property
     def root_loadbalancer(self):
@@ -109,6 +112,7 @@ class HealthMonitorV2(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     expected_codes = sa.Column(sa.String(64), nullable=True)
     provisioning_status = sa.Column(sa.String(16), nullable=False)
     admin_state_up = sa.Column(sa.Boolean(), nullable=False)
+    name = sa.Column(sa.String(attr.NAME_MAX_LEN), nullable=True)
 
     @property
     def root_loadbalancer(self):
@@ -191,6 +195,8 @@ class LoadBalancer(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
         # balancer ID and should not be cleared out in this table
         viewonly=True
     )
+    flavor_id = sa.Column(sa.String(36), sa.ForeignKey(
+        'flavors.id', name='fk_lbaas_loadbalancers_flavors_id'))
 
     @property
     def root_loadbalancer(self):
@@ -211,7 +217,7 @@ class SNI(model_base.BASEV2):
                             sa.ForeignKey("lbaas_listeners.id"),
                             primary_key=True,
                             nullable=False)
-    tls_container_id = sa.Column(sa.String(36),
+    tls_container_id = sa.Column(sa.String(128),
                                  primary_key=True,
                                  nullable=False)
     position = sa.Column(sa.Integer)
@@ -242,7 +248,7 @@ class Listener(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     protocol = sa.Column(sa.Enum(*lb_const.LISTENER_SUPPORTED_PROTOCOLS,
                                  name="listener_protocolsv2"),
                          nullable=False)
-    default_tls_container_id = sa.Column(sa.String(36),
+    default_tls_container_id = sa.Column(sa.String(128),
                                          default=None, nullable=True)
     sni_containers = orm.relationship(
             SNI,

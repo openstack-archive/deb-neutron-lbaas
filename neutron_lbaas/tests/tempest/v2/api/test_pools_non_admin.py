@@ -13,7 +13,6 @@
 #    under the License.
 
 from tempest_lib.common.utils import data_utils
-from tempest_lib import decorators
 from tempest_lib import exceptions as ex
 
 from neutron_lbaas.tests.tempest.lib import test
@@ -48,13 +47,16 @@ class TestPools(base.BaseTestCase):
             tenant_id=cls.subnet.get('tenant_id'),
             vip_subnet_id=cls.subnet.get('id'),
             wait=True)
+        cls.listener = cls._create_listener(
+            loadbalancer_id=cls.load_balancer.get('id'),
+            protocol='HTTP', protocol_port=80)
 
     def increment_protocol_port(self):
         global PROTOCOL_PORT
         PROTOCOL_PORT += 1
 
     def _prepare_and_create_pool(self, protocol=None, lb_algorithm=None,
-                                 listener_id=None, **kwargs):
+                                 listener_id=None, cleanup=True, **kwargs):
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         self.increment_protocol_port()
         if not protocol:
@@ -72,6 +74,8 @@ class TestPools(base.BaseTestCase):
                                      listener_id=listener_id,
                                      wait=True,
                                      **kwargs)
+        if cleanup:
+            self.addCleanup(self._delete_pool, response['id'])
         return response
 
     @test.attr(type='smoke')
@@ -88,9 +92,7 @@ class TestPools(base.BaseTestCase):
         pools = self.pools_client.list_pools()
         self.assertEqual(1, len(pools))
         self.assertIn(new_pool, pools)
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_list_pools_two(self):
         """Test get pools with two pools"""
@@ -100,9 +102,6 @@ class TestPools(base.BaseTestCase):
         self.assertEqual(2, len(pools))
         self.assertIn(new_pool1, pools)
         self.assertIn(new_pool2, pools)
-        self._delete_pool(new_pool1.get('id'))
-        self._wait_for_load_balancer_status(self.load_balancer.get('id'))
-        self._delete_pool(new_pool2.get('id'))
 
     @test.attr(type='smoke')
     def test_get_pool(self):
@@ -110,7 +109,6 @@ class TestPools(base.BaseTestCase):
         new_pool = self._prepare_and_create_pool()
         pool = self.pools_client.get_pool(new_pool.get('id'))
         self.assertEqual(new_pool, pool)
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='smoke')
     def test_create_pool(self):
@@ -118,7 +116,6 @@ class TestPools(base.BaseTestCase):
         new_pool = self._prepare_and_create_pool()
         pool = self.pools_client.get_pool(new_pool.get('id'))
         self.assertEqual(new_pool, pool)
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='negative')
     def test_create_pool_missing_required_fields(self):
@@ -128,7 +125,6 @@ class TestPools(base.BaseTestCase):
                           tenant_id=tenant_id,
                           lb_algorithm='ROUND_ROBIN')
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_create_pool_missing_tenant_field(self):
         """Test create pool with a missing required tenant field"""
@@ -139,9 +135,7 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.get_pool(new_pool.get('id'))
         pool_tenant = pool['tenant_id']
         self.assertEqual(tenant_id, pool_tenant)
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_create_pool_missing_protocol_field(self):
         """Test create pool with a missing required protocol field"""
@@ -149,6 +143,7 @@ class TestPools(base.BaseTestCase):
         listener = self.listeners_client.create_listener(
             loadbalancer_id=self.load_balancer.get('id'),
             protocol='HTTP', protocol_port=PROTOCOL_PORT)
+        self.addCleanup(self._delete_listener, listener['id'])
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         listener_id = listener.get('id')
         tenant_id = self.subnet.get('tenant_id')
@@ -157,7 +152,6 @@ class TestPools(base.BaseTestCase):
                           listener_id=listener_id,
                           lb_algorithm='ROUND_ROBIN')
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_create_pool_missing_lb_algorithm_field(self):
         """Test create pool with a missing required lb algorithm field"""
@@ -165,6 +159,7 @@ class TestPools(base.BaseTestCase):
         listener = self.listeners_client.create_listener(
             loadbalancer_id=self.load_balancer.get('id'),
             protocol='HTTP', protocol_port=PROTOCOL_PORT)
+        self.addCleanup(self._delete_listener, listener['id'])
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         listener_id = listener.get('id')
         tenant_id = self.subnet.get('tenant_id')
@@ -182,7 +177,6 @@ class TestPools(base.BaseTestCase):
                           lb_algorithm='ROUND_ROBIN',
                           protocol='HTTP')
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_create_pool_missing_description_field(self):
         """Test create pool with missing description field"""
@@ -191,47 +185,38 @@ class TestPools(base.BaseTestCase):
         pool_initial = self.pools_client.get_pool(new_pool.get('id'))
         desc = pool_initial.get('description')
         self.assertEqual(desc, "")
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_create_pool_missing_name_field(self):
         """Test create pool with a missing name field"""
-        self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         new_pool = self._prepare_and_create_pool()
         pool_initial = self.pools_client.get_pool(new_pool.get('id'))
         name = pool_initial.get('name')
         self.assertEqual(name, "")
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_create_pool_missing_admin_state_up_field(self):
         """Test create pool with a missing admin_state_up field"""
-        self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         new_pool = self._prepare_and_create_pool()
         pool_initial = self.pools_client.get_pool(new_pool.get('id'))
         state = pool_initial.get('admin_state_up')
         self.assertEqual(state, True)
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_create_pool_missing_session_pers_field(self):
         """Test create pool with a missing session_pers field"""
-        self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         new_pool = self._prepare_and_create_pool()
         pool_initial = self.pools_client.get_pool(new_pool.get('id'))
         sess = pool_initial.get('session_persistence')
         self.assertIsNone(sess)
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='negative')
     def test_create_pool_invalid_protocol(self):
         """Test create pool with an invalid protocol"""
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='UDP',
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_invalid_session_persistence_field(self):
@@ -239,14 +224,16 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
                           session_persistence={'type': 'HTTP'},
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_invalid_algorithm(self):
         """Test create pool with an invalid algorithm"""
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
-                          lb_algorithm='LEAST_CON')
+                          lb_algorithm='LEAST_CON',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_invalid_admin_state_up(self):
@@ -254,7 +241,8 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
                           admin_state_up="$!1%9823",
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_invalid_listener_field(self):
@@ -266,7 +254,6 @@ class TestPools(base.BaseTestCase):
                           protocol='HTTP',
                           listener_id="$@5$%$7863")
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_create_pool_invalid_tenant_id_field(self):
         """Test create pool with invalid tenant_id field"""
@@ -274,6 +261,7 @@ class TestPools(base.BaseTestCase):
         listener = self.listeners_client.create_listener(
             loadbalancer_id=self.load_balancer.get('id'),
             protocol='HTTP', protocol_port=PROTOCOL_PORT)
+        self.addCleanup(self._delete_listener, listener['id'])
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         listener_id = listener.get('id')
         self.assertRaises(ex.BadRequest, self._create_pool,
@@ -288,7 +276,8 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
                           lb_algorithm='ROUND_ROBIN',
-                          protocol_port=80)
+                          protocol_port=80,
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_empty_listener_field(self):
@@ -307,7 +296,6 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.get_pool(new_pool.get('id'))
         pool_desc = pool.get('description')
         self.assertEqual(pool_desc, '')
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='smoke')
     def test_create_pool_empty_name_field(self):
@@ -316,14 +304,14 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.get_pool(new_pool.get('id'))
         pool_name = pool.get('name')
         self.assertEqual(pool_name, '')
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='negative')
     def test_create_pool_empty_protocol(self):
         """Test create pool with an empty protocol"""
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol="",
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_empty_session_persistence_field(self):
@@ -331,14 +319,16 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           session_persistence="",
                           protocol='HTTP',
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_empty_algorithm(self):
         """Test create pool with an empty algorithm"""
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
-                          lb_algorithm="")
+                          lb_algorithm="",
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_empty_admin_state_up(self):
@@ -354,7 +344,8 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
                           tenant_id="",
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_for_other_tenant_field(self):
@@ -363,9 +354,9 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
                           tenant_id=tenant,
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_create_pool_invalid_name_field(self):
         """
@@ -375,18 +366,19 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           protocol='HTTP',
                           lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'],
                           name='n' * 256)
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_create_pool_invalid_desc_field(self):
         """
         known bug with input more than 255 chars
         Test create pool with invalid desc field
         """
-        self.assertRaises(ex.BadRequest, self._create_pool,
+        self.assertRaises(ex.BadRequest, self._prepare_and_create_pool,
                           protocol='HTTP',
                           lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'],
                           description='d' * 256)
 
     @test.attr(type='negative')
@@ -397,7 +389,8 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           session_persistence={'type': 'UNSUPPORTED'},
                           protocol='HTTP',
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='smoke')
     def test_create_pool_with_session_persistence_http_cookie(self):
@@ -406,7 +399,6 @@ class TestPools(base.BaseTestCase):
             session_persistence={'type': 'HTTP_COOKIE'})
         pool = self.pools_client.get_pool(new_pool.get('id'))
         self.assertEqual(new_pool, pool)
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='smoke')
     def test_create_pool_with_session_persistence_app_cookie(self):
@@ -416,7 +408,6 @@ class TestPools(base.BaseTestCase):
                                  'cookie_name': 'sessionId'})
         pool = self.pools_client.get_pool(new_pool.get('id'))
         self.assertEqual(new_pool, pool)
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='negative')
     def test_create_pool_with_session_persistence_redundant_cookie_name(self):
@@ -427,7 +418,8 @@ class TestPools(base.BaseTestCase):
                           session_persistence={'type': 'HTTP_COOKIE',
                                                'cookie_name': 'sessionId'},
                           protocol='HTTP',
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='negative')
     def test_create_pool_with_session_persistence_without_cookie_name(self):
@@ -437,7 +429,8 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self._create_pool,
                           session_persistence={'type': 'APP_COOKIE'},
                           protocol='HTTP',
-                          lb_algorithm='ROUND_ROBIN')
+                          lb_algorithm='ROUND_ROBIN',
+                          listener_id=self.listener['id'])
 
     @test.attr(type='smoke')
     def test_update_pool(self):
@@ -448,9 +441,7 @@ class TestPools(base.BaseTestCase):
                                  description=desc,
                                  wait=True)
         self.assertEqual(desc, pool.get('description'))
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_update_pool_missing_name(self):
         """Test update pool with missing name"""
@@ -460,9 +451,7 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.update_pool(new_pool.get('id'))
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         self.assertEqual(name, pool.get('name'))
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_update_pool_missing_description(self):
         """Test update pool with missing description"""
@@ -472,9 +461,7 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.update_pool(new_pool.get('id'))
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         self.assertEqual(desc, pool.get('description'))
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_update_pool_missing_admin_state_up(self):
         """Test update pool with missing admin state up field"""
@@ -484,30 +471,23 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.update_pool(new_pool.get('id'))
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         self.assertEqual(admin, pool.get('admin_state_up'))
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_update_pool_missing_session_persistence(self):
         """Test update pool with missing session persistence"""
         new_pool = self._prepare_and_create_pool()
         pool_initial = self.pools_client.get_pool(new_pool.get('id'))
         sess_pers = pool_initial.get('session_persistence')
-        pool = self.pools_client.update_pool(new_pool.get('id'))
+        pool = self._update_pool(new_pool.get('id'))
         self.assertAlmostEqual(sess_pers, pool.get('session_persistence'))
-        self._wait_for_load_balancer_status(self.load_balancer.get('id'))
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_update_pool_invalid_name(self):
         """Test update pool with invalid name"""
         new_pool = self._prepare_and_create_pool()
         self.assertRaises(ex.BadRequest, self.pools_client.update_pool,
                           new_pool.get('id'), name='n' * 256)
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_update_pool_invalid_desc(self):
         """Test update pool with invalid desc"""
@@ -515,18 +495,14 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self.pools_client.update_pool,
                           new_pool.get('id'),
                           description='d' * 256)
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_update_pool_invalid_admin_state_up(self):
         """Test update pool with an invalid admin_state_up"""
         new_pool = self._prepare_and_create_pool()
         self.assertRaises(ex.BadRequest, self.pools_client.update_pool,
                           new_pool.get('id'), admin_state_up='hello')
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_update_pool_invalid_session_persistence(self):
         """Test update pool with an invalid session pers. field"""
@@ -534,9 +510,7 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self.pools_client.update_pool,
                           new_pool.get('id'),
                           session_persistence={'type': 'Hello'})
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_update_pool_empty_name(self):
         """Test update pool with empty name"""
@@ -544,9 +518,7 @@ class TestPools(base.BaseTestCase):
         pool = self.pools_client.update_pool(new_pool.get('id'), name="")
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         self.assertEqual(pool.get('name'), "")
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_update_pool_empty_description(self):
         """Test update pool with empty description"""
@@ -555,18 +527,14 @@ class TestPools(base.BaseTestCase):
                                              description="")
         self._wait_for_load_balancer_status(self.load_balancer.get('id'))
         self.assertEqual(pool.get('description'), "")
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_update_pool_empty_admin_state_up(self):
         """Test update pool with empty admin state up"""
         new_pool = self._prepare_and_create_pool()
         self.assertRaises(ex.BadRequest, self.pools_client.update_pool,
                           new_pool.get('id'), admin_state_up="")
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_update_pool_empty_session_persistence(self):
         """Test update pool with empty session persistence field"""
@@ -574,41 +542,35 @@ class TestPools(base.BaseTestCase):
         self.assertRaises(ex.BadRequest, self.pools_client.update_pool,
                           new_pool.get('id'),
                           session_persistence="")
-        self.pools_client.delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_update_pool_invalid_attribute(self):
         """Test update pool with an invalid attribute"""
         new_pool = self._prepare_and_create_pool()
         self.assertRaises(ex.BadRequest, self._update_pool,
                           new_pool.get('id'), lb_algorithm='ROUNDED')
-        self._delete_pool(new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='negative')
     def test_update_pool_incorrect_attribute(self):
         """Test update a pool with an extra, incorrect field"""
         new_pool = self._prepare_and_create_pool()
         self.assertRaises(ex.BadRequest, self._update_pool,
                           new_pool.get('id'), protocol='HTTPS')
-        self._delete_pool(new_pool.get('id'))
 
     @test.attr(type='smoke')
     def test_delete_pool(self):
         """Test delete pool"""
-        new_pool = self._prepare_and_create_pool()
+        new_pool = self._prepare_and_create_pool(cleanup=False)
         pool = self.pools_client.get_pool(new_pool.get('id'))
         self.assertEqual(new_pool, pool)
         self._delete_pool(new_pool.get('id'))
         self.assertRaises(ex.NotFound, self.pools_client.get_pool,
                           new_pool.get('id'))
 
-    @decorators.skip_because(bug="1497471")
     @test.attr(type='smoke')
     def test_delete_invalid_pool(self):
         """Test delete pool that doesn't exist"""
-        new_pool = self._prepare_and_create_pool()
+        new_pool = self._prepare_and_create_pool(cleanup=False)
         pool = self.pools_client.get_pool(new_pool.get('id'))
         self.assertEqual(new_pool, pool)
         self._delete_pool(new_pool.get('id'))

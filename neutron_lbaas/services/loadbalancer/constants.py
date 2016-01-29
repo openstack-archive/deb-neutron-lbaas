@@ -43,6 +43,33 @@ HEALTH_MONITOR_HTTPS = 'HTTPS'
 SUPPORTED_HEALTH_MONITOR_TYPES = (HEALTH_MONITOR_HTTP, HEALTH_MONITOR_HTTPS,
                                   HEALTH_MONITOR_PING, HEALTH_MONITOR_TCP)
 
+HTTP_METHOD_GET = 'GET'
+HTTP_METHOD_HEAD = 'HEAD'
+HTTP_METHOD_POST = 'POST'
+HTTP_METHOD_PUT = 'PUT'
+HTTP_METHOD_DELETE = 'DELETE'
+HTTP_METHOD_TRACE = 'TRACE'
+HTTP_METHOD_OPTIONS = 'OPTIONS'
+HTTP_METHOD_CONNECT = 'CONNECT'
+HTTP_METHOD_PATCH = 'PATCH'
+
+
+SUPPORTED_HTTP_METHODS = (HTTP_METHOD_GET, HTTP_METHOD_HEAD, HTTP_METHOD_POST,
+                          HTTP_METHOD_PUT, HTTP_METHOD_DELETE,
+                          HTTP_METHOD_TRACE, HTTP_METHOD_OPTIONS,
+                          HTTP_METHOD_CONNECT, HTTP_METHOD_PATCH)
+
+# URL path regex according to RFC 3986
+# Format: path = "/" *( "/" segment )
+#         segment       = *pchar
+#         pchar         = unreserved / pct-encoded / sub-delims / ":" / "@"
+#         unreserved    = ALPHA / DIGIT / "-" / "." / "_" / "~"
+#         pct-encoded   = "%" HEXDIG HEXDIG
+#         sub-delims    = "!" / "$" / "&" / "'" / "(" / ")"
+#                         / "*" / "+" / "," / ";" / "="
+SUPPORTED_URL_PATH = (
+    "^(/([a-zA-Z0-9-._~!$&\'()*+,;=:@]|(%[a-fA-F0-9]{2}))*)+$")
+
 SESSION_PERSISTENCE_SOURCE_IP = 'SOURCE_IP'
 SESSION_PERSISTENCE_HTTP_COOKIE = 'HTTP_COOKIE'
 SESSION_PERSISTENCE_APP_COOKIE = 'APP_COOKIE'
@@ -75,8 +102,19 @@ OPERATING_STATUSES = (ONLINE, OFFLINE, DEGRADED, DISABLED, NO_MONITOR)
 NO_CHECK = 'no check'
 
 # LBaaS V2 Agent Constants
-# LBaaS V1 Agent constants live in neutron
 LBAAS_AGENT_SCHEDULER_V2_EXT_ALIAS = 'lbaas_agent_schedulerv2'
 AGENT_TYPE_LOADBALANCERV2 = 'Loadbalancerv2 agent'
 LOADBALANCER_PLUGINV2 = 'n-lbaasv2-plugin'
 LOADBALANCER_AGENTV2 = 'n-lbaasv2_agent'
+
+# LBasS V1 Agent Constants
+LOADBALANCER_PLUGIN = 'n-lbaas-plugin'
+LOADBALANCER_AGENT = 'n-lbaas_agent'
+
+LOADBALANCER = "LOADBALANCER"
+LOADBALANCERV2 = "LOADBALANCERV2"
+
+# Used to check number of connections per second allowed
+# for the LBaaS V1 vip and LBaaS V2 listeners. -1 indicates
+# no limit, the value cannot be less than -1.
+MIN_CONNECT_VALUE = -1

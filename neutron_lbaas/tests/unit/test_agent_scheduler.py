@@ -137,8 +137,8 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
             lbaas_agent = self._get_lbaas_agent_hosting_loadbalancer(
                 loadbalancer['loadbalancer']['id'])
             self.assertIsNotNone(lbaas_agent)
-            self.assertEqual(lbaas_agent['agent']['agent_type'],
-                             lb_const.AGENT_TYPE_LOADBALANCERV2)
+            self.assertEqual(lb_const.AGENT_TYPE_LOADBALANCERV2,
+                             lbaas_agent['agent']['agent_type'])
             loadbalancers = self._list_loadbalancers_hosted_by_agent(
                 lbaas_agent['agent']['id'])
             self.assertEqual(1, len(loadbalancers['loadbalancers']))
@@ -172,6 +172,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
             'loadbalancer': {
                 'vip_subnet_id': subnet['id'],
                 'provider': 'lbaas',
+                'flavor_id': attributes.ATTR_NOT_SPECIFIED,
                 'vip_address': attributes.ATTR_NOT_SPECIFIED,
                 'admin_state_up': True,
                 'tenant_id': self._tenant_id}}
@@ -206,6 +207,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
                 'loadbalancer': {
                     'vip_subnet_id': subnet['id'],
                     'provider': 'lbaas',
+                    'flavor_id': attributes.ATTR_NOT_SPECIFIED,
                     'vip_address': attributes.ATTR_NOT_SPECIFIED,
                     'admin_state_up': True,
                     'tenant_id': self._tenant_id}}
@@ -219,8 +221,8 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
             lb_id = loadbalancer['loadbalancer']['id']
             lbaas_agent = self._get_lbaas_agent_hosting_loadbalancer(lb_id)
             self.assertIsNotNone(lbaas_agent)
-            self.assertEqual(lbaas_agent['agent']['agent_type'],
-                             lb_const.AGENT_TYPE_LOADBALANCERV2)
+            self.assertEqual(lb_const.AGENT_TYPE_LOADBALANCERV2,
+                             lbaas_agent['agent']['agent_type'])
             loadbalancers = self._list_loadbalancers_hosted_by_agent(
                 lbaas_agent['agent']['id'])
             self.assertEqual(1, len(loadbalancers['loadbalancers']))
@@ -233,7 +235,7 @@ class LBaaSAgentSchedulerTestCase(test_agent.AgentDBTestMixIn,
 
             req = self.new_delete_request('loadbalancers', lb_id)
             res = req.get_response(self.ext_api)
-            self.assertEqual(res.status_int, exc.HTTPNoContent.code)
+            self.assertEqual(exc.HTTPNoContent.code, res.status_int)
             loadbalancers = self._list_loadbalancers_hosted_by_agent(
                 lbaas_agent['agent']['id'])
             self.assertEqual(0, len(loadbalancers['loadbalancers']))

@@ -12,14 +12,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from keystoneclient.auth.identity import v2 as v2_client
-from keystoneclient.auth.identity import v3 as v3_client
-from keystoneclient import session
+from keystoneauth1.identity import v2 as v2_client
+from keystoneauth1.identity import v3 as v3_client
+from keystoneauth1 import session
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
 
-from neutron.i18n import _LE
+from neutron_lbaas._i18n import _, _LE
 
 
 LOG = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ cfg.CONF.register_opts(OPTS, 'service_auth')
 def get_session():
     """Initializes a Keystone session.
 
-    :return: a Keystone Session object
+    :returns: a Keystone Session object
     :raises Exception: if the session cannot be established
     """
     global _SESSION

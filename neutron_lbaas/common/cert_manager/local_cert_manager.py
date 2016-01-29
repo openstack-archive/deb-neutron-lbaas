@@ -15,10 +15,10 @@
 import os
 import uuid
 
-from neutron.i18n import _LI, _LE
 from oslo_config import cfg
 from oslo_log import log as logging
 
+from neutron_lbaas._i18n import _LI, _LE
 from neutron_lbaas.common.cert_manager import cert_manager
 from neutron_lbaas.common import exceptions
 
@@ -117,7 +117,7 @@ class CertManager(cert_manager.CertManager):
 
         :param cert_ref: the UUID of the cert to retrieve
 
-        :return: neutron_lbaas.common.cert_manager.cert_manager.Cert
+        :returns: neutron_lbaas.common.cert_manager.cert_manager.Cert
                  representation of the certificate data
         :raises CertificateStorageException: if certificate retrieval fails
         """

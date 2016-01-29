@@ -14,7 +14,6 @@
 
 import abc
 
-from oslo_log import log as logging
 import six
 from tempest_lib import auth
 
@@ -22,7 +21,6 @@ from neutron_lbaas.tests.tempest.lib import config
 from neutron_lbaas.tests.tempest.lib import exceptions
 
 CONF = config.CONF
-LOG = logging.getLogger(__name__)
 
 # Type of credentials available from configuration
 CREDENTIAL_TYPES = {
@@ -101,14 +99,14 @@ class CredentialProvider(object):
     def __init__(self, identity_version=None, name=None, password='pass',
                  network_resources=None):
         """A CredentialProvider supplies credentials to test classes.
-        :param identity_version If specified it will return credentials of the
+        :param identity_version: If specified it will return credentials of the
                                 corresponding identity version, otherwise it
                                 uses auth_version from configuration
-        :param name Name of the calling test. Included in provisioned
+        :param name: Name of the calling test. Included in provisioned
                     credentials when credentials are provisioned on the fly
-        :param password Used for provisioned credentials when credentials are
+        :param password: Used for provisioned credentials when credentials are
                         provisioned on the fly
-        :param network_resources Network resources required for the credentials
+        :param network_resources: Network resources required for the credentials
         """
         # TODO(andreaf) name and password are tenant isolation specific, and
         # could be removed from this abstract class

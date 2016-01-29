@@ -16,6 +16,7 @@ import contextlib
 
 import mock
 from neutron.common import exceptions
+import six
 
 from neutron_lbaas.services.loadbalancer.drivers.haproxy \
     import namespace_driver
@@ -32,14 +33,13 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         conf.haproxy.user_group = 'test_group'
         conf.haproxy.send_gratuitous_arp = 3
         self.conf = conf
-        self.mock_importer = mock.patch.object(namespace_driver,
-                                               'importutils').start()
-
         self.rpc_mock = mock.Mock()
-        self.driver = namespace_driver.HaproxyNSDriver(
-            conf,
-            self.rpc_mock
-        )
+        with mock.patch(
+                'neutron.common.utils.load_class_by_alias_or_classname'):
+            self.driver = namespace_driver.HaproxyNSDriver(
+                conf,
+                self.rpc_mock
+            )
         self.vif_driver = mock.Mock()
         self.driver.vif_driver = self.vif_driver
 
@@ -58,7 +58,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         return mock.call(**kwargs)
 
     def test_get_name(self):
-        self.assertEqual(self.driver.get_name(), namespace_driver.DRIVER_NAME)
+        self.assertEqual(namespace_driver.DRIVER_NAME, self.driver.get_name())
 
     def test_create(self):
         with mock.patch.object(self.driver, '_plug') as plug:
@@ -74,7 +74,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         with contextlib.nested(
             mock.patch.object(self.driver, '_get_state_file_path'),
             mock.patch.object(self.driver, '_spawn'),
-            mock.patch('__builtin__.open')
+            mock.patch.object(six.moves.builtins, 'open')
         ) as (gsp, spawn, mock_open):
             mock_open.return_value = ['5']
 
@@ -411,7 +411,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
     def test_kill_pids_in_file(self):
         with contextlib.nested(
             mock.patch('os.path.exists'),
-            mock.patch('__builtin__.open'),
+            mock.patch.object(six.moves.builtins, 'open'),
             mock.patch('neutron.agent.linux.utils.execute'),
             mock.patch.object(namespace_driver.LOG, 'exception'),
         ) as (path_exists, mock_open, mock_execute, mock_log):

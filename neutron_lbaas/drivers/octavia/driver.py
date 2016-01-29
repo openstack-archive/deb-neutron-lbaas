@@ -23,10 +23,12 @@ from oslo_serialization import jsonutils
 from oslo_utils import excutils
 import requests
 
+from neutron_lbaas._i18n import _
+from neutron_lbaas.common import keystone
 from neutron_lbaas.drivers import driver_base
 
 LOG = logging.getLogger(__name__)
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 OPTS = [
     cfg.StrOpt(
@@ -45,12 +47,18 @@ OPTS = [
         default=100,
         help=_('Time to stop polling octavia when a status of an entity does '
                'not change.')
-    )
+    ),
+    cfg.BoolOpt(
+        'allocates_vip',
+        default=False,
+        help=_('True if Octavia will be responsible for allocating the VIP.'
+               ' False if neutron-lbaas will allocate it and pass to Octavia.')
+    ),
 ]
 cfg.CONF.register_opts(OPTS, 'octavia')
 
 
-def thread_op(manager, entity, delete=False):
+def thread_op(manager, entity, delete=False, lb_create=False):
     context = ncontext.get_admin_context()
     poll_interval = cfg.CONF.octavia.request_poll_interval
     poll_timeout = cfg.CONF.octavia.request_poll_timeout
@@ -62,7 +70,16 @@ def thread_op(manager, entity, delete=False):
         LOG.debug("Octavia reports load balancer {0} has provisioning status "
                   "of {1}".format(entity.root_loadbalancer.id, prov_status))
         if prov_status == 'ACTIVE' or prov_status == 'DELETED':
-            manager.successful_completion(context, entity, delete=delete)
+            kwargs = {'delete': delete}
+            if manager.driver.allocates_vip and lb_create:
+                kwargs['lb_create'] = lb_create
+                # TODO(blogan): drop fk constraint on vip_port_id to ports
+                # table because the port can't be removed unless the load
+                # balancer has been deleted.  Until then we won't populate the
+                # vip_port_id field.
+                # entity.vip_port_id = octavia_lb.get('vip').get('port_id')
+                entity.vip_address = octavia_lb.get('vip').get('ip_address')
+            manager.successful_completion(context, entity, **kwargs)
             return
         elif prov_status == 'ERROR':
             manager.failed_completion(context, entity)
@@ -81,11 +98,14 @@ def async_op(func):
     @wraps(func)
     def func_wrapper(*args, **kwargs):
         d = (func.__name__ == 'delete')
+        lb_create = ((func.__name__ == 'create') and
+                     isinstance(args[0], LoadBalancerManager))
         try:
             r = func(*args, **kwargs)
             thread = threading.Thread(target=thread_op,
                                       args=(args[0], args[2]),
-                                      kwargs={'delete': d})
+                                      kwargs={'delete': d,
+                                              'lb_create': lb_create})
             thread.setDaemon(True)
             thread.start()
             return r
@@ -97,14 +117,17 @@ def async_op(func):
 
 class OctaviaRequest(object):
 
-    def __init__(self, base_url):
+    def __init__(self, base_url, auth_session):
         self.base_url = base_url
+        self.auth_session = auth_session
 
     def request(self, method, url, args=None, headers=None):
         if args:
             if not headers:
+                token = self.auth_session.get_token()
                 headers = {
-                    'Content-type': 'application/json'
+                    'Content-type': 'application/json',
+                    'X-Auth-Token': token
                 }
             args = jsonutils.dumps(args)
         LOG.debug("url = %s", '%s%s' % (self.base_url, str(url)))
@@ -136,8 +159,8 @@ class OctaviaDriver(driver_base.LoadBalancerBaseDriver):
 
     def __init__(self, plugin):
         super(OctaviaDriver, self).__init__(plugin)
-
-        self.req = OctaviaRequest(cfg.CONF.octavia.base_url)
+        self.req = OctaviaRequest(cfg.CONF.octavia.base_url,
+                                  keystone.get_session())
 
         self.load_balancer = LoadBalancerManager(self)
         self.listener = ListenerManager(self)
@@ -146,6 +169,10 @@ class OctaviaDriver(driver_base.LoadBalancerBaseDriver):
         self.health_monitor = HealthMonitorManager(self)
 
         LOG.debug("OctaviaDriver: initialized, version=%s", VERSION)
+
+    @property
+    def allocates_vip(self):
+        return self.load_balancer.allocates_vip
 
 
 class LoadBalancerManager(driver_base.BaseLoadBalancerManager):
@@ -157,6 +184,13 @@ class LoadBalancerManager(driver_base.BaseLoadBalancerManager):
             s += '/%s' % id
         return s
 
+    @property
+    def allocates_vip(self):
+        return cfg.CONF.octavia.allocates_vip
+
+    def create_and_allocate_vip(self, context, lb):
+        self.create(context, lb)
+
     @async_op
     def create(self, context, lb):
         args = {
@@ -164,6 +198,7 @@ class LoadBalancerManager(driver_base.BaseLoadBalancerManager):
             'name': lb.name,
             'description': lb.description,
             'enabled': lb.admin_state_up,
+            'project_id': lb.tenant_id,
             'vip': {
                 'subnet_id': lb.vip_subnet_id,
                 'ip_address': lb.vip_address,
@@ -217,9 +252,10 @@ class ListenerManager(driver_base.BaseListenerManager):
             'protocol_port': listener.protocol_port,
             'connection_limit': listener.connection_limit,
             'tls_certificate_id': listener.default_tls_container_id,
-            'sni_containers': sni_container_ids,
+            'sni_containers': sni_container_ids
         }
         if create:
+            args['project_id'] = listener.tenant_id
             args['id'] = listener.id
         write_func(url, args)
 
@@ -255,7 +291,7 @@ class PoolManager(driver_base.BasePoolManager):
             'description': pool.description,
             'enabled': pool.admin_state_up,
             'protocol': pool.protocol,
-            'lb_algorithm': pool.lb_algorithm,
+            'lb_algorithm': pool.lb_algorithm
         }
         if pool.session_persistence:
             args['session_persistence'] = {
@@ -263,6 +299,7 @@ class PoolManager(driver_base.BasePoolManager):
                 'cookie_name': pool.session_persistence.cookie_name,
             }
         if create:
+            args['project_id'] = pool.tenant_id
             args['id'] = pool.id
         write_func(url, args)
 
@@ -301,6 +338,7 @@ class MemberManager(driver_base.BaseMemberManager):
             'protocol_port': member.protocol_port,
             'weight': member.weight,
             'subnet_id': member.subnet_id,
+            'project_id': member.tenant_id
         }
         self.driver.req.post(self._url(member), args)
 
@@ -329,7 +367,7 @@ class HealthMonitorManager(driver_base.BaseHealthMonitorManager):
         return s
 
     @classmethod
-    def _write(cls, write_func, url, hm):
+    def _write(cls, write_func, url, hm, create=True):
         args = {
             'type': hm.type,
             'delay': hm.delay,
@@ -339,8 +377,10 @@ class HealthMonitorManager(driver_base.BaseHealthMonitorManager):
             'http_method': hm.http_method,
             'url_path': hm.url_path,
             'expected_codes': hm.expected_codes,
-            'enabled': hm.admin_state_up,
+            'enabled': hm.admin_state_up
         }
+        if create:
+            args['project_id'] = hm.tenant_id
         write_func(cls._url(hm), args)
 
     @async_op
@@ -349,7 +389,7 @@ class HealthMonitorManager(driver_base.BaseHealthMonitorManager):
 
     @async_op
     def update(self, context, old_hm, hm):
-        self._write(self.driver.req.put, self._url(hm), hm)
+        self._write(self.driver.req.put, self._url(hm), hm, create=False)
 
     @async_op
     def delete(self, context, hm):

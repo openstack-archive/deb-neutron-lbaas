@@ -20,13 +20,13 @@ import os
 import re
 import sys
 import time
-import urllib
 import uuid
 
 import fixtures
 from oslo_log import log as logging
 from oslo_utils import importutils
 import six
+from six.moves.urllib import parse
 import testscenarios
 import testtools
 
@@ -381,8 +381,8 @@ class BaseTestCase(testtools.testcase.WithAttributes,
             cls.validation_resources = vresources.create_validation_resources(
                 cls.os, cls.validation_resources)
         else:
-            LOG.warn("Client manager not found, validation resources not"
-                     " created")
+            LOG.warning("Client manager not found, validation resources not"
+                        " created")
 
     @classmethod
     def resource_cleanup(cls):
@@ -396,8 +396,8 @@ class BaseTestCase(testtools.testcase.WithAttributes,
                                                       cls.validation_resources)
                 cls.validation_resources = {}
             else:
-                LOG.warn("Client manager not found, validation resources not"
-                         " deleted")
+                LOG.warning("Client manager not found, validation resources "
+                            "not deleted")
 
     def setUp(self):
         super(BaseTestCase, self).setUp()
@@ -463,7 +463,7 @@ class BaseTestCase(testtools.testcase.WithAttributes,
         :param credential_type: string - primary, alt or admin
         :param roles: list of roles
 
-        :returns the created client manager
+        :returns: the created client manager
         :raises skipException: if the requested credentials are not available
         """
         if all([roles, credential_type]):
@@ -565,7 +565,7 @@ class BaseTestCase(testtools.testcase.WithAttributes,
     def get_tenant_network(cls):
         """Get the network to be used in testing
 
-        :return: network dict including 'id' and 'name'
+        :returns: network dict including 'id' and 'name'
         """
         # Make sure isolated_creds exists and get a network client
         networks_client = cls.get_client_manager().networks_client
@@ -742,7 +742,7 @@ class NegativeAutoTest(BaseTestCase):
         if not json_dict:
             return url, None
         elif method in ["GET", "HEAD", "PUT", "DELETE"]:
-            return "%s?%s" % (url, urllib.urlencode(json_dict)), None
+            return "%s?%s" % (url, parse.urlencode(json_dict)), None
         else:
             return url, json.dumps(json_dict)
 

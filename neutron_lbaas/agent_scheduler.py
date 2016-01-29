@@ -18,13 +18,13 @@ import random
 from neutron.db import agents_db
 from neutron.db import agentschedulers_db
 from neutron.db import model_base
-from neutron.i18n import _LW
 from oslo_log import log as logging
 import six
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.orm import joinedload
 
+from neutron_lbaas._i18n import _LW
 from neutron_lbaas.extensions import lbaas_agentschedulerv2
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 
@@ -118,7 +118,7 @@ class ChanceScheduler(object):
 
             active_agents = plugin.db.get_lbaas_agents(context, active=True)
             if not active_agents:
-                LOG.warn(
+                LOG.warning(
                     _LW('No active lbaas agents for load balancer %s'),
                     loadbalancer.id)
                 return
@@ -126,8 +126,8 @@ class ChanceScheduler(object):
             candidates = plugin.db.get_lbaas_agent_candidates(device_driver,
                                                               active_agents)
             if not candidates:
-                LOG.warn(_LW('No lbaas agent supporting device driver %s'),
-                         device_driver)
+                LOG.warning(_LW('No lbaas agent supporting device driver %s'),
+                            device_driver)
                 return
 
             chosen_agent = random.choice(candidates)

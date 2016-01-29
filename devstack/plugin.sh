@@ -7,9 +7,15 @@ function neutron_lbaas_install {
 
 function neutron_agent_lbaas_install_agent_packages {
     if is_ubuntu; then
-        sudo add-apt-repository "deb http://archive.ubuntu.com/ubuntu trusty-backports main restricted universe multiverse" -y
-        sudo apt-get update
-        sudo apt-get install haproxy -t trusty-backports
+        if [[ ${OFFLINE} == false ]]; then
+            BACKPORT="deb http://archive.ubuntu.com/ubuntu trusty-backports main restricted universe multiverse"
+            BACKPORT_EXISTS=$(grep ^ /etc/apt/sources.list /etc/apt/sources.list.d/* | grep "${BACKPORT}")
+            if [[ -z "${BACKPORT_EXISTS}" ]]; then
+                sudo add-apt-repository "${BACKPORT}" -y
+            fi
+            sudo apt-get update
+            sudo apt-get install haproxy -t trusty-backports
+        fi
     fi
     if is_fedora || is_suse; then
         install_package haproxy
@@ -21,7 +27,10 @@ function neutron_lbaas_configure_common {
         die $LINENO "Do not enable both Version 1 and Version 2 of LBaaS."
     fi
 
-    cp $NEUTRON_LBAAS_DIR/etc/neutron_lbaas.conf $NEUTRON_LBAAS_CONF
+    # Uses oslo config generator to generate LBaaS sample configuration files
+    (cd $NEUTRON_LBAAS_DIR && exec ./tools/generate_config_file_samples.sh)
+
+    cp $NEUTRON_LBAAS_DIR/etc/neutron_lbaas.conf.sample $NEUTRON_LBAAS_CONF
 
     if is_service_enabled $LBAAS_V1; then
         inicomment $NEUTRON_LBAAS_CONF service_providers service_provider
@@ -39,14 +48,19 @@ function neutron_lbaas_configure_common {
         iniset $NEUTRON_CONF DEFAULT service_plugins $Q_SERVICE_PLUGIN_CLASSES
     fi
 
-    if is_service_enabled $BARBICAN; then
-        # Ensure config is set up properly for use with barbican
-        iniset $NEUTRON_CONF keystone_authtoken auth_uri $AUTH_URI
-        iniset $NEUTRON_CONF keystone_authtoken admin_tenant_name $ADMIN_TENANT_NAME
-        iniset $NEUTRON_CONF keystone_authtoken admin_user $ADMIN_USER
-        iniset $NEUTRON_CONF keystone_authtoken admin_password $ADMIN_PASSWORD
-        iniset $NEUTRON_CONF keystone_authtoken auth_version $AUTH_VERSION
-    fi
+    # Ensure config is set up properly for authentication neutron-lbaas
+    iniset $NEUTRON_LBAAS_CONF service_auth auth_uri $AUTH_URI
+    iniset $NEUTRON_LBAAS_CONF service_auth admin_tenant_name $ADMIN_TENANT_NAME
+    iniset $NEUTRON_LBAAS_CONF service_auth admin_user $ADMIN_USER
+    iniset $NEUTRON_LBAAS_CONF service_auth admin_password $ADMIN_PASSWORD
+    iniset $NEUTRON_LBAAS_CONF service_auth auth_version $AUTH_VERSION
+
+    # Ensure config is set up properly for authentication neutron
+    iniset $NEUTRON_CONF service_auth auth_uri $AUTH_URI
+    iniset $NEUTRON_CONF service_auth admin_tenant_name $ADMIN_TENANT_NAME
+    iniset $NEUTRON_CONF service_auth admin_user $ADMIN_USER
+    iniset $NEUTRON_CONF service_auth admin_password $ADMIN_PASSWORD
+    iniset $NEUTRON_CONF service_auth auth_version $AUTH_VERSION
 
     _neutron_deploy_rootwrap_filters $NEUTRON_LBAAS_DIR
 
@@ -55,7 +69,7 @@ function neutron_lbaas_configure_common {
 
 function neutron_lbaas_configure_agent {
     mkdir -p $LBAAS_AGENT_CONF_PATH
-    cp $NEUTRON_LBAAS_DIR/etc/lbaas_agent.ini $LBAAS_AGENT_CONF_FILENAME
+    cp $NEUTRON_LBAAS_DIR/etc/lbaas_agent.ini.sample $LBAAS_AGENT_CONF_FILENAME
 
     # ovs_use_veth needs to be set before the plugin configuration
     # occurs to allow plugins to override the setting.
@@ -70,15 +84,24 @@ function neutron_lbaas_configure_agent {
 }
 
 function neutron_lbaas_start {
+    local is_run_process=True
+
     if is_service_enabled $LBAAS_V1; then
         LBAAS_VERSION="q-lbaas"
         AGENT_LBAAS_BINARY=${AGENT_LBAASV1_BINARY}
-    else
+    elif is_service_enabled $LBAAS_V2; then
         LBAAS_VERSION="q-lbaasv2"
         AGENT_LBAAS_BINARY=${AGENT_LBAASV2_BINARY}
+        # Octavia doesn't need the LBaaS V2 service running.  If Octavia is the
+        # only provider then don't run the process.
+        if [[ "$NEUTRON_LBAAS_SERVICE_PROVIDERV2" == "$NEUTRON_LBAAS_SERVICE_PROVIDERV2_OCTAVIA" ]]; then
+            is_run_process=False
+        fi
     fi
 
-    run_process $LBAAS_VERSION "python $AGENT_LBAAS_BINARY --config-file $NEUTRON_CONF --config-file $NEUTRON_LBAAS_CONF --config-file=$LBAAS_AGENT_CONF_FILENAME"
+    if [[ "$is_run_process" == "True" ]] ; then
+        run_process $LBAAS_VERSION "python $AGENT_LBAAS_BINARY --config-file $NEUTRON_CONF --config-file $NEUTRON_LBAAS_CONF --config-file=$LBAAS_AGENT_CONF_FILENAME"
+    fi
 }
 
 function neutron_lbaas_stop {

@@ -17,6 +17,7 @@
 import abc
 
 from oslo_config import cfg
+from oslo_log import log as logging
 import six
 
 from neutron.api import extensions
@@ -28,9 +29,12 @@ from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services import service_base
 
+from neutron_lbaas._i18n import _
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 
 LOADBALANCERV2_PREFIX = "/lbaas"
+
+LOG = logging.getLogger(__name__)
 
 
 # Loadbalancer Exceptions
@@ -124,6 +128,25 @@ class CertManagerError(nexception.NeutronException):
     message = _("Could not process TLS container %(ref)s, %(reason)s")
 
 
+class ProviderFlavorConflict(nexception.Conflict):
+    message = _("Cannot specify both a flavor and a provider")
+
+
+class FlavorsPluginNotLoaded(nexception.NotFound):
+    message = _("Flavors plugin not found")
+
+
+def _validate_connection_limit(data, min_value=lb_const.MIN_CONNECT_VALUE):
+    if int(data) < min_value:
+        msg = (_("'%(data)s' is not a valid value, "
+                 "because it cannot be less than %(min_value)s") %
+               {'data': data, 'min_value': min_value})
+        LOG.debug(msg)
+        return msg
+
+attr.validators['type:connection_limit'] = _validate_connection_limit
+
+
 RESOURCE_ATTRIBUTE_MAP = {
     'loadbalancers': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -131,15 +154,16 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'default': '',
                  'is_visible': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:not_empty_string':
+                                   attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
         'vip_subnet_id': {'allow_post': True, 'allow_put': False,
                           'validate': {'type:uuid': None},
@@ -162,7 +186,11 @@ RESOURCE_ATTRIBUTE_MAP = {
         'provisioning_status': {'allow_post': False, 'allow_put': False,
                                 'is_visible': True},
         'operating_status': {'allow_post': False, 'allow_put': False,
-                             'is_visible': True}
+                             'is_visible': True},
+        'flavor_id': {'allow_post': True, 'allow_put': False,
+                      'is_visible': True,
+                      'validate': {'type:string': attr.NAME_MAX_LEN},
+                      'default': attr.ATTR_NOT_SPECIFIED}
     },
     'listeners': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -170,15 +198,16 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:not_empty_string':
+                                   attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'default': '',
                  'is_visible': True},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
         'loadbalancer_id': {'allow_post': True, 'allow_put': False,
                             'validate': {'type:uuid': None},
@@ -198,7 +227,9 @@ RESOURCE_ATTRIBUTE_MAP = {
                                'convert_to': attr.convert_to_list,
                                'is_visible': True},
         'connection_limit': {'allow_post': True, 'allow_put': True,
-                             'default': -1,
+                             'validate': {'type:connection_limit':
+                                          lb_const.MIN_CONNECT_VALUE},
+                             'default': lb_const.MIN_CONNECT_VALUE,
                              'convert_to': attr.convert_to_int,
                              'is_visible': True},
         'protocol': {'allow_post': True, 'allow_put': False,
@@ -220,14 +251,15 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:not_empty_string':
+                                   attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'is_visible': True, 'default': ''},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
         'listener_id': {'allow_post': True, 'allow_put': False,
                         'validate': {'type:uuid': None},
@@ -270,7 +302,8 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:not_empty_string':
+                                   attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'pool_id': {'allow_post': True, 'allow_put': False,
@@ -295,11 +328,13 @@ RESOURCE_ATTRIBUTE_MAP = {
                         'convert_to': attr.convert_to_int,
                         'is_visible': True},
         'http_method': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:values':
+                                     lb_const.SUPPORTED_HTTP_METHODS},
                         'default': 'GET',
                         'is_visible': True},
         'url_path': {'allow_post': True, 'allow_put': True,
-                     'validate': {'type:string': None},
+                     'validate': {'type:regex_or_none':
+                                  lb_const.SUPPORTED_URL_PATH},
                      'default': '/',
                      'is_visible': True},
         'expected_codes': {
@@ -314,7 +349,11 @@ RESOURCE_ATTRIBUTE_MAP = {
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
                            'convert_to': attr.convert_to_boolean,
-                           'is_visible': True}
+                           'is_visible': True},
+        'name': {'allow_post': True, 'allow_put': True,
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
+                 'default': '',
+                 'is_visible': True}
     }
 }
 
@@ -328,7 +367,8 @@ SUB_RESOURCE_ATTRIBUTE_MAP = {
                    'is_visible': True,
                    'primary_key': True},
             'tenant_id': {'allow_post': True, 'allow_put': False,
-                          'validate': {'type:string': None},
+                          'validate': {'type:not_empty_string':
+                                       attr.TENANT_ID_MAX_LEN},
                           'required_by_policy': True,
                           'is_visible': True},
             'address': {'allow_post': True, 'allow_put': False,
@@ -350,7 +390,10 @@ SUB_RESOURCE_ATTRIBUTE_MAP = {
             'subnet_id': {'allow_post': True, 'allow_put': False,
                           'validate': {'type:uuid': None},
                           'is_visible': True},
-
+            'name': {'allow_post': True, 'allow_put': True,
+                     'validate': {'type:string': attr.NAME_MAX_LEN},
+                     'default': '',
+                     'is_visible': True},
         }
     }
 }

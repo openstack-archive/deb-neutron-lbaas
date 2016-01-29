@@ -13,15 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_log import log as logging
 from tempest_lib.common.utils import data_utils
+from tempest_lib import exceptions as ex
 
 from neutron_lbaas.tests.tempest.lib import config
 from neutron_lbaas.tests.tempest.lib import test
 from neutron_lbaas.tests.tempest.v2.api import base
 CONF = config.CONF
-
-LOG = logging.getLogger(__name__)
 
 
 class MemberTestJSON(base.BaseAdminTestCase):
@@ -70,21 +68,17 @@ class MemberTestJSON(base.BaseAdminTestCase):
         member_opts['subnet_id'] = self.subnet_id
         member_opts['tenant_id'] = "$232!$pw"
         member = self._create_member(self.pool_id, **member_opts)
+        self.addCleanup(self._delete_member, self.pool_id, member['id'])
         self.assertEqual(member['subnet_id'], self.subnet_id)
         self.assertEqual(member['tenant_id'], "$232!$pw")
-        self._delete_member(self.pool_id, member['id'])
-        self.assertEmpty(self.members_client.list_members(self.pool_id))
 
-    @test.attr(type='smoke')
+    @test.attr(type='negative')
     def test_create_member_empty_tenant_id(self):
-        """Test create member with an empty tenant_id"""
+        """Test create member with an empty tenant_id should fail"""
         member_opts = {}
         member_opts['address'] = "127.0.0.1"
         member_opts['protocol_port'] = 80
         member_opts['subnet_id'] = self.subnet_id
         member_opts['tenant_id'] = ""
-        member = self._create_member(self.pool_id, **member_opts)
-        self.assertEqual(member['subnet_id'], self.subnet_id)
-        self.assertEqual(member['tenant_id'], "")
-        self._delete_member(self.pool_id, member['id'])
-        self.assertEmpty(self.members_client.list_members(self.pool_id))
+        self.assertRaises(ex.BadRequest, self._create_member,
+                          self.pool_id, **member_opts)

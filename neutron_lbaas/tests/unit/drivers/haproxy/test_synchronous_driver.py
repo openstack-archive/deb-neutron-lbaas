@@ -20,6 +20,7 @@ import mock
 from neutron.common import exceptions
 from neutron.extensions import portbindings
 from neutron.plugins.common import constants
+import six
 
 from neutron_lbaas.db.loadbalancer import models
 from neutron_lbaas.drivers.haproxy \
@@ -44,24 +45,23 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         conf.haproxy.periodic_interval = 10
         conf.host = 'host1'
         self.conf = conf
-        self.mock_importer = mock.patch.object(sync_driver,
-                                               'importutils').start()
-
         self.context_mock = mock.Mock()
         self.plugin_mock = mock.Mock()
         self.plugin_mock.db = mock.Mock()
         self.plugin_mock.db._core_plugin = mock.Mock()
         self.mock_service = mock.patch.object(
             sync_driver, 'SimpleHaproxyStatsService').start()
-        self.driver = sync_driver.HaproxyNSDriver(
-            self.plugin_mock)
+        with mock.patch(
+                'neutron.common.utils.load_class_by_alias_or_classname'):
+            self.driver = sync_driver.HaproxyNSDriver(
+                self.plugin_mock)
         self.driver.state_path = '/the/path/v2'
         self.vif_driver = mock.Mock()
         self.driver.vif_driver = self.vif_driver
 
     def test_get_ns_name(self):
-        self.assertEqual(namespace_driver.get_ns_name('ns_id_1'),
-                         namespace_driver.NS_PREFIX + 'ns_id_1')
+        self.assertEqual(namespace_driver.NS_PREFIX + 'ns_id_1',
+                         namespace_driver.get_ns_name('ns_id_1'))
 
     def test_deploy_existing_instance(self):
         dirs = ['lbid1', 'lbid2']
@@ -79,7 +79,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
             rdb.asert_called_once_with(dirs)
             upin.assert_has_calls([mock.call(lbs[0]), mock.call(lbs[1])])
             self.assertEqual(2, upin.call_count)
-            #deployed_loadbalancer_ids is a set
+            # deployed_loadbalancer_ids is a set
             self.assertEqual(1, len(self.driver.deployed_loadbalancer_ids))
             self.assertIn(self._sample_in_loadbalancer().id,
                           self.driver.deployed_loadbalancer_ids)
@@ -138,7 +138,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         self.driver.conf.host = 'host1'
         ret = {'admin_state_up': True,
                portbindings.HOST_ID: self.conf.host}
-        self.assertEqual(ret, self.driver._build_port_dict())
+        self.assertEqual(self.driver._build_port_dict(), ret)
 
     def test_get_state_file_path(self):
         with mock.patch('os.makedirs') as mkdir:
@@ -156,7 +156,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
                                'get_subnet', return_value=ret_subnet):
             self.driver._populate_subnets(self.context_mock, port)
             for fixed_ip in port.fixed_ips:
-                self.assertEqual(ret_subnet, fixed_ip.subnet)
+                self.assertEqual(fixed_ip.subnet, ret_subnet)
 
     def test_plug(self):
         fixed_ips = [data_models.IPAllocation(ip_address='10.0.0.2',
@@ -402,7 +402,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         listener = data_models.Listener(default_pool=pool)
         lb = data_models.LoadBalancer(listeners=[listener])
         ret_members = [member for member in self.driver._get_members(lb)]
-        self.assertEqual(len(ret_members), len(members))
+        self.assertEqual(len(members), len(ret_members))
         self.assertIn(members[0], ret_members)
         self.assertIn(members[1], ret_members)
 
@@ -515,7 +515,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
         with contextlib.nested(
             mock.patch.object(self.driver, '_get_state_file_path'),
             mock.patch.object(self.driver, '_spawn'),
-            mock.patch('__builtin__.open')
+            mock.patch.object(six.moves.builtins, 'open')
         ) as (gsp, spawn, mock_open):
             mock_open.return_value = ['5']
 
@@ -651,7 +651,7 @@ class TestHaproxyNSDriver(base.BaseTestCase):
     def test_kill_pids_in_file(self):
         with contextlib.nested(
             mock.patch('os.path.exists'),
-            mock.patch('__builtin__.open'),
+            mock.patch.object(six.moves.builtins, 'open'),
             mock.patch('neutron.agent.linux.utils.execute'),
             mock.patch.object(namespace_driver.LOG, 'exception'),
         ) as (path_exists, mock_open, mock_execute, mock_log):
@@ -1120,7 +1120,7 @@ class TestPoolManager(BaseTestManager):
                 self.pool.delete(self.context, pool)
                 refresh_instance.assert_called_once_with(self.context,
                                                          loadbalancer)
-                self.assertEqual(listener.default_pool, None)
+                self.assertIsNone(listener.default_pool)
                 success.assert_called_once_with(self.context, pool,
                                                 delete=True)
 

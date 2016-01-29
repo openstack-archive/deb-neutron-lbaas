@@ -271,7 +271,7 @@ class HealthMonitor(BaseDataModel):
     def __init__(self, id=None, tenant_id=None, type=None, delay=None,
                  timeout=None, max_retries=None, http_method=None,
                  url_path=None, expected_codes=None, provisioning_status=None,
-                 admin_state_up=None, pool=None):
+                 admin_state_up=None, pool=None, name=None):
         self.id = id
         self.tenant_id = tenant_id
         self.type = type
@@ -284,6 +284,7 @@ class HealthMonitor(BaseDataModel):
         self.provisioning_status = provisioning_status
         self.admin_state_up = admin_state_up
         self.pool = pool
+        self.name = name
 
     def attached_to_loadbalancer(self):
         return bool(self.pool and self.pool.listener and
@@ -378,7 +379,7 @@ class Member(BaseDataModel):
     def __init__(self, id=None, tenant_id=None, pool_id=None, address=None,
                  protocol_port=None, weight=None, admin_state_up=None,
                  subnet_id=None, operating_status=None,
-                 provisioning_status=None, pool=None):
+                 provisioning_status=None, pool=None, name=None):
         self.id = id
         self.tenant_id = tenant_id
         self.pool_id = pool_id
@@ -390,6 +391,7 @@ class Member(BaseDataModel):
         self.operating_status = operating_status
         self.provisioning_status = provisioning_status
         self.pool = pool
+        self.name = name
 
     def attached_to_loadbalancer(self):
         return bool(self.pool and self.pool.listener and
@@ -502,7 +504,7 @@ class LoadBalancer(BaseDataModel):
                  vip_subnet_id=None, vip_port_id=None, vip_address=None,
                  provisioning_status=None, operating_status=None,
                  admin_state_up=None, vip_port=None, stats=None,
-                 provider=None, listeners=None):
+                 provider=None, listeners=None, flavor_id=None):
         self.id = id
         self.tenant_id = tenant_id
         self.name = name
@@ -517,6 +519,7 @@ class LoadBalancer(BaseDataModel):
         self.stats = stats
         self.provider = provider
         self.listeners = listeners or []
+        self.flavor_id = flavor_id
 
     def attached_to_loadbalancer(self):
         return True
@@ -528,6 +531,10 @@ class LoadBalancer(BaseDataModel):
                                  for listener in self.listeners]
         if self.provider:
             ret_dict['provider'] = self.provider.provider_name
+
+        if not self.flavor_id:
+            del ret_dict['flavor_id']
+
         return ret_dict
 
     @classmethod

@@ -22,13 +22,12 @@ from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils as linux_utils
 from neutron.common import exceptions
 from neutron.common import utils as n_utils
-from neutron.i18n import _LI, _LE, _LW
 from neutron.plugins.common import constants
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import excutils
-from oslo_utils import importutils
 
+from neutron_lbaas._i18n import _, _LI, _LE, _LW
 from neutron_lbaas.agent import agent_device_driver
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 from neutron_lbaas.services.loadbalancer import data_models
@@ -61,14 +60,16 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
         self.state_path = os.path.join(
             self.conf.haproxy.loadbalancer_state_path, STATE_PATH_V2_APPEND)
         try:
-            vif_driver = importutils.import_object(conf.interface_driver, conf)
+            vif_driver_class = n_utils.load_class_by_alias_or_classname(
+                'neutron.interface_drivers',
+                conf.interface_driver)
         except ImportError:
             with excutils.save_and_reraise_exception():
                 msg = (_('Error importing interface driver: %s')
                        % conf.interface_driver)
                 LOG.error(msg)
 
-        self.vif_driver = vif_driver
+        self.vif_driver = vif_driver_class(conf)
         self.deployed_loadbalancers = {}
         self._loadbalancer = LoadBalancerManager(self)
         self._listener = ListenerManager(self)
@@ -153,15 +154,15 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
             lb_stats['members'] = self._get_servers_stats(parsed_stats)
             return lb_stats
         else:
-            LOG.warn(_LW('Stats socket not found for loadbalancer %s') %
-                     loadbalancer_id)
+            LOG.warning(_LW('Stats socket not found for loadbalancer %s'),
+                        loadbalancer_id)
             return {}
 
     @n_utils.synchronized('haproxy-driver')
     def deploy_instance(self, loadbalancer):
         """Deploys loadbalancer if necessary
 
-        :return: True if loadbalancer was deployed, False otherwise
+        :returns: True if loadbalancer was deployed, False otherwise
         """
         if not self.deployable(loadbalancer):
             LOG.info(_LI("Loadbalancer %s is not deployable.") %
@@ -227,7 +228,7 @@ class HaproxyNSDriver(agent_device_driver.AgentDeviceDriver):
 
             return self._parse_stats(raw_stats)
         except socket.error as e:
-            LOG.warn(_LW('Error while connecting to stats socket: %s'), e)
+            LOG.warning(_LW('Error while connecting to stats socket: %s'), e)
             return {}
 
     def _parse_stats(self, raw_stats):

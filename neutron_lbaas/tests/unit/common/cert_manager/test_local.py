@@ -42,11 +42,11 @@ class TestLocalCert(base.BaseTestCase):
         )
 
         # Validate the cert functions
-        self.assertEqual(cert.get_certificate(), self.certificate)
-        self.assertEqual(cert.get_intermediates(), self.intermediates)
-        self.assertEqual(cert.get_private_key(), self.private_key)
-        self.assertEqual(cert.get_private_key_passphrase(),
-                         self.private_key_passphrase)
+        self.assertEqual(self.certificate, cert.get_certificate())
+        self.assertEqual(self.intermediates, cert.get_intermediates())
+        self.assertEqual(self.private_key, cert.get_private_key())
+        self.assertEqual(self.private_key_passphrase,
+                         cert.get_private_key_passphrase())
 
 
 class TestLocalManager(base.BaseTestCase):
@@ -65,7 +65,7 @@ class TestLocalManager(base.BaseTestCase):
     def _store_cert(self):
         file_mock = mock.mock_open()
         # Attempt to store the cert
-        with mock.patch('__builtin__.open', file_mock, create=True):
+        with mock.patch('six.moves.builtins.open', file_mock, create=True):
             cert_id = local_cert_manager.CertManager.store_cert(
                 certificate=self.certificate,
                 intermediates=self.intermediates,
@@ -97,7 +97,7 @@ class TestLocalManager(base.BaseTestCase):
     def _get_cert(self, cert_id):
         file_mock = mock.mock_open()
         # Attempt to retrieve the cert
-        with mock.patch('__builtin__.open', file_mock, create=True):
+        with mock.patch('six.moves.builtins.open', file_mock, create=True):
             data = local_cert_manager.CertManager.get_cert(cert_id)
 
         # Verify the correct files were opened

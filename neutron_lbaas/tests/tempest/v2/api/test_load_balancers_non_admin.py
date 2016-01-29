@@ -15,9 +15,7 @@
 
 from netaddr import IPAddress
 
-from oslo_log import log as logging
 from tempest_lib.common.utils import data_utils
-from tempest_lib import decorators
 from tempest_lib import exceptions
 
 from neutron_lbaas.tests.tempest.lib import config
@@ -25,8 +23,6 @@ from neutron_lbaas.tests.tempest.lib import test
 from neutron_lbaas.tests.tempest.v2.api import base
 
 CONF = config.CONF
-
-LOG = logging.getLogger(__name__)
 
 
 class LoadBalancersTestJSON(base.BaseTestCase):
@@ -70,12 +66,12 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         new_load_balancer = self._create_active_load_balancer(
             **self.create_lb_kwargs)
         new_load_balancer_id = new_load_balancer['id']
+        self.addCleanup(self._delete_load_balancer, new_load_balancer_id)
         load_balancers = self.load_balancers_client.list_load_balancers()
         self.assertEqual(len(load_balancers), 2)
         self.assertIn(self.load_balancer, load_balancers)
         self.assertIn(new_load_balancer, load_balancers)
         self.assertNotEqual(self.load_balancer, new_load_balancer)
-        self._delete_load_balancer(new_load_balancer_id)
 
     @test.attr(type='smoke')
     def test_get_load_balancer(self):
@@ -90,11 +86,11 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         new_load_balancer = self._create_active_load_balancer(
             **self.create_lb_kwargs)
         new_load_balancer_id = new_load_balancer['id']
+        self.addCleanup(self._delete_load_balancer, new_load_balancer_id)
         load_balancer = self.load_balancers_client.get_load_balancer(
             new_load_balancer_id)
         self.assertEqual(new_load_balancer, load_balancer)
         self.assertNotEqual(self.load_balancer, new_load_balancer)
-        self._delete_load_balancer(new_load_balancer_id)
 
     @test.attr(type='negative')
     def test_create_load_balancer_missing_vip_subnet_id_field(self):
@@ -120,8 +116,8 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         """Test create load balancer with an empty description field"""
         load_balancer = self._create_active_load_balancer(
             vip_subnet_id=self.subnet['id'], description="")
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('description'), "")
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='negative')
     def test_create_load_balancer_empty_vip_address_field(self):
@@ -137,8 +133,8 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         """Test create load balancer with a missing admin_state_up field"""
         load_balancer = self._create_active_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('admin_state_up'), True)
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='negative')
     def test_create_load_balancer_empty_admin_state_up_field(self):
@@ -154,27 +150,27 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         """Test create load balancer with a missing name field"""
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('name'), '')
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='smoke')
     def test_create_load_balancer_empty_name(self):
         """Test create load balancer with an empty name field"""
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'], name="")
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('name'), "")
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='smoke')
     def test_create_load_balancer_missing_description(self):
         """Test create load balancer with a missing description field"""
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('description'), '')
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='smoke')
     def test_create_load_balancer_missing_vip_address(self):
@@ -184,6 +180,7 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         """
         load_balancer = self._create_active_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         load_balancer_ip_initial = load_balancer['vip_address']
         ip = IPAddress(load_balancer_ip_initial)
         self.assertEqual(ip.version, 4)
@@ -191,19 +188,18 @@ class LoadBalancersTestJSON(base.BaseTestCase):
             load_balancer['id'])
         load_balancer_final = load_balancer['vip_address']
         self.assertEqual(load_balancer_ip_initial, load_balancer_final)
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='smoke')
     def test_create_load_balancer_missing_provider_field(self):
         """Test create load balancer with a missing provider field"""
         load_balancer = self._create_active_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         load_balancer_initial = load_balancer['provider']
         load_balancer = self.load_balancers_client.get_load_balancer(
             load_balancer['id'])
         load_balancer_final = load_balancer['provider']
         self.assertEqual(load_balancer_initial, load_balancer_final)
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='negative')
     def test_create_load_balancer_invalid_vip_subnet_id(self):
@@ -229,7 +225,6 @@ class LoadBalancersTestJSON(base.BaseTestCase):
                           wait=False,
                           tenant_id="&^%123")
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_create_load_balancer_invalid_name(self):
         """Test create load balancer with an invalid name"""
@@ -240,7 +235,6 @@ class LoadBalancersTestJSON(base.BaseTestCase):
                           vip_subnet_id=self.subnet['id'],
                           name='n' * 256)
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_create_load_balancer_invalid_description(self):
         """Test create load balancer with an invalid description"""
@@ -266,10 +260,10 @@ class LoadBalancersTestJSON(base.BaseTestCase):
         """Test create load balancer with a missing tenant id field"""
         load_balancer = self.load_balancers_client.create_load_balancer(
             vip_subnet_id=self.subnet['id'])
+        self.addCleanup(self._delete_load_balancer, load_balancer['id'])
         self.assertEqual(load_balancer.get('tenant_id'),
                          self.subnet['tenant_id'])
         self._wait_for_load_balancer_status(load_balancer['id'])
-        self._delete_load_balancer(load_balancer['id'])
 
     @test.attr(type='negative')
     def test_create_load_balancer_empty_tenant_id_field(self):
@@ -290,6 +284,23 @@ class LoadBalancersTestJSON(base.BaseTestCase):
                           vip_subnet_id=self.subnet['id'],
                           tenant_id=tenant)
 
+    @test.attr(type='negative')
+    def test_create_load_balancer_invalid_flavor_field(self):
+        """Test create load balancer with an invalid flavor field"""
+        self.assertRaises(exceptions.NotFound,
+                          self.load_balancers_client.create_load_balancer,
+                          vip_subnet_id=self.subnet['id'],
+                          flavor_id="NO_SUCH_FLAVOR")
+
+    @test.attr(type='negative')
+    def test_create_load_balancer_provider_flavor_conflict(self):
+        """Test create load balancer with both a provider and a flavor"""
+        self.assertRaises(exceptions.Conflict,
+                          self.load_balancers_client.create_load_balancer,
+                          vip_subnet_id=self.subnet['id'],
+                          flavor_id="NO_SUCH_FLAVOR",
+                          provider="NO_SUCH_PROVIDER")
+
     @test.attr(type='smoke')
     def test_update_load_balancer(self):
         """Test update load balancer"""
@@ -308,7 +319,6 @@ class LoadBalancersTestJSON(base.BaseTestCase):
             self.load_balancer_id)
         self.assertEqual(load_balancer.get('name'), "")
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_update_load_balancer_invalid_name(self):
         """Test update load balancer with invalid name"""
@@ -321,16 +331,15 @@ class LoadBalancersTestJSON(base.BaseTestCase):
     @test.attr(type='smoke')
     def test_update_load_balancer_missing_name(self):
         """Test update load balancer with missing name"""
-        self._update_load_balancer(self.load_balancer_id)
         loadbalancer = self.load_balancers_client.get_load_balancer(
             self.load_balancer_id)
         load_balancer_initial = loadbalancer['name']
+        self._update_load_balancer(self.load_balancer_id)
         load_balancer = self.load_balancers_client.get_load_balancer(
             self.load_balancer_id)
         load_balancer_new = load_balancer['name']
         self.assertEqual(load_balancer_initial, load_balancer_new)
 
-    @decorators.skip_because(bug="1434717")
     @test.attr(type='negative')
     def test_update_load_balancer_invalid_description(self):
         """Test update load balancer with invalid description"""
@@ -352,10 +361,10 @@ class LoadBalancersTestJSON(base.BaseTestCase):
     @test.attr(type='smoke')
     def test_update_load_balancer_missing_description(self):
         """Test update load balancer with missing description"""
-        self._update_load_balancer(self.load_balancer_id)
         loadbalancer = self.load_balancers_client.get_load_balancer(
             self.load_balancer_id)
         load_balancer_initial = loadbalancer['description']
+        self._update_load_balancer(self.load_balancer_id)
         load_balancer = self.load_balancers_client.get_load_balancer(
             self.load_balancer_id)
         load_balancer_new = load_balancer['description']
@@ -382,10 +391,10 @@ class LoadBalancersTestJSON(base.BaseTestCase):
     @test.attr(type='smoke')
     def test_update_load_balancer_missing_admin_state_up(self):
         """Test update load balancer with missing admin state field"""
-        self._update_load_balancer(self.load_balancer_id)
         loadbalancer = self.load_balancers_client.get_load_balancer(
             self.load_balancer_id)
         load_balancer_initial = loadbalancer['admin_state_up']
+        self._update_load_balancer(self.load_balancer_id)
         self.assertEqual(load_balancer_initial, True)
 
     @test.attr(type='negative')

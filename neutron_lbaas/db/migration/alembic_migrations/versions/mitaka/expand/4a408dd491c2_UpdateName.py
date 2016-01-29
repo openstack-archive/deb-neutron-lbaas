@@ -1,5 +1,4 @@
-# Copyright 2013 Embrane, Inc.
-# All Rights Reserved.
+# Copyright 2015 NEC Corporation
 #
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
@@ -13,14 +12,24 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from oslo_config import cfg
+"""Addition of Name column to lbaas_members and lbaas_healthmonitors table
 
-from neutron_lbaas.services.loadbalancer.drivers.embrane import config  # noqa
-from neutron_lbaas.tests import base
+Revision ID: 4a408dd491c2
+Revises: 3345facd0452
+Create Date: 2015-11-16 11:47:43.061649
+
+"""
+
+# revision identifiers, used by Alembic.
+revision = '4a408dd491c2'
+down_revision = '3345facd0452'
+
+from alembic import op
+import sqlalchemy as sa
+
+LB_TAB_NAME = ['lbaas_members', 'lbaas_healthmonitors']
 
 
-class ConfigurationTest(base.BaseTestCase):
-
-    def test_defaults(self):
-        self.assertEqual('small', cfg.CONF.heleoslb.lb_flavor)
-        self.assertEqual(60, cfg.CONF.heleoslb.sync_interval)
+def upgrade():
+    for table in LB_TAB_NAME:
+        op.add_column(table, sa.Column('name', sa.String(255), nullable=True))

@@ -25,7 +25,6 @@ eventlet.monkey_patch(thread=True)
 
 from neutron.api.v2 import attributes
 from neutron import context as ncontext
-from neutron.i18n import _LE, _LI, _LW
 from neutron.plugins.common import constants
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
@@ -34,6 +33,7 @@ from oslo_serialization import jsonutils
 from oslo_utils import excutils
 from six.moves import queue as Queue
 
+from neutron_lbaas._i18n import _, _LE, _LI, _LW
 from neutron_lbaas.db.loadbalancer import loadbalancer_db as lb_db
 from neutron_lbaas.extensions import loadbalancer
 from neutron_lbaas.services.loadbalancer.drivers import abstract_driver
@@ -67,6 +67,7 @@ driver_opts = [
                help=_('vDirect user name.')),
     cfg.StrOpt('vdirect_password',
                default='radware',
+               secret=True,
                help=_('vDirect user password.')),
     cfg.StrOpt('service_adc_type',
                default="VA",

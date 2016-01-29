@@ -30,7 +30,7 @@ def get_network_from_name(name, compute_networks_client):
     :param str name: the name of the network to use
     :param NetworksClientJSON compute_networks_client: The network client
         object to use for making the network lists api request
-    :return: The full dictionary for the network in question
+    :returns: The full dictionary for the network in question
     :rtype: dict
     :raises InvalidConfiguration: If the name provided is invalid, the networks
         list returns a 404, there are no found networks, or the found network
@@ -64,13 +64,13 @@ def get_network_from_name(name, compute_networks_client):
                    name, networks))
         if caller:
             msg = '(%s) %s' % (caller, msg)
-        LOG.warn(msg)
+        LOG.warning(msg)
         raise exceptions.InvalidConfiguration()
     else:
         msg = "Network with name: %s not found" % name
         if caller:
             msg = '(%s) %s' % (caller, msg)
-        LOG.warn(msg)
+        LOG.warning(msg)
         raise exceptions.InvalidConfiguration()
     # To be consistent between neutron and nova network always use name even
     # if label is used in the api response. If neither is present than then
@@ -80,7 +80,7 @@ def get_network_from_name(name, compute_networks_client):
         msg = "Network found from list doesn't contain a valid name or label"
         if caller:
             msg = '(%s) %s' % (caller, msg)
-        LOG.warn(msg)
+        LOG.warning(msg)
         raise exceptions.InvalidConfiguration()
     network['name'] = name
     return network
@@ -95,7 +95,7 @@ def get_tenant_network(creds_provider, compute_networks_client):
            neutron and nova-network cases. If this is not an admin network
            client, set_network_kwargs might fail in case fixed_network_name
            is the network to be used, and it's not visible to the tenant
-    :return a dict with 'id' and 'name' of the network
+    :returns: a dict with 'id' and 'name' of the network
     """
     caller = misc_utils.find_test_caller()
     fixed_network_name = CONF.compute.fixed_network_name
@@ -125,7 +125,7 @@ def set_networks_kwarg(network, kwargs=None):
 
     :param network: dict of network to be used with 'id' and 'name'
     :param kwargs: server create kwargs to be enhanced
-    :return: new dict of kwargs updated to include networks
+    :returns: new dict of kwargs updated to include networks
     """
     params = copy.copy(kwargs) or {}
     if kwargs and 'networks' in kwargs:
@@ -135,6 +135,6 @@ def set_networks_kwarg(network, kwargs=None):
         if 'id' in network.keys():
             params.update({"networks": [{'uuid': network['id']}]})
         else:
-            LOG.warn('The provided network dict: %s was invalid and did not '
-                     ' contain an id' % network)
+            LOG.warning('The provided network dict: %s was invalid and did '
+                        'not contain an id', network)
     return params

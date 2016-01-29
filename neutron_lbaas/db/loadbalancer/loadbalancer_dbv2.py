@@ -29,6 +29,7 @@ from oslo_utils import uuidutils
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
 
+from neutron_lbaas._i18n import _
 from neutron_lbaas import agent_scheduler
 from neutron_lbaas.db.loadbalancer import models
 from neutron_lbaas.extensions import loadbalancerv2
@@ -69,8 +70,6 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                                       models.SessionPersistenceV2)):
                     raise loadbalancerv2.EntityNotFound(name=model.NAME, id=id)
                 ctx.reraise = True
-        # always refresh the resource to get up-to-date models
-        context.session.refresh(resource)
         return resource
 
     def _resource_exists(self, context, model, id):
@@ -140,10 +139,8 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                     id=loadbalancer_id)
             context.session.delete(stats)
 
-    def _load_id_and_tenant_id(self, context, model_dict):
+    def _load_id(self, context, model_dict):
         model_dict['id'] = uuidutils.generate_uuid()
-        model_dict['tenant_id'] = self._get_tenant_id_for_create(
-            context, model_dict)
 
     def assert_modification_allowed(self, obj):
         status = getattr(obj, 'provisioning_status', None)
@@ -204,7 +201,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
 
     def create_loadbalancer(self, context, loadbalancer, allocate_vip=True):
         with context.session.begin(subtransactions=True):
-            self._load_id_and_tenant_id(context, loadbalancer)
+            self._load_id(context, loadbalancer)
             vip_address = loadbalancer.pop('vip_address')
             loadbalancer['provisioning_status'] = constants.PENDING_CREATE
             loadbalancer['operating_status'] = lb_const.OFFLINE
@@ -234,11 +231,11 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             lb_db.update(loadbalancer)
         return data_models.LoadBalancer.from_sqlalchemy_model(lb_db)
 
-    def delete_loadbalancer(self, context, id):
+    def delete_loadbalancer(self, context, id, delete_vip_port=True):
         with context.session.begin(subtransactions=True):
             lb_db = self._get_resource(context, models.LoadBalancer, id)
             context.session.delete(lb_db)
-        if lb_db.vip_port:
+        if delete_vip_port and lb_db.vip_port:
             self._core_plugin.delete_port(context, lb_db.vip_port_id)
 
     def prevent_lbaasv2_port_deletion(self, context, port_id):
@@ -309,7 +306,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
         self._convert_api_to_db(listener)
         try:
             with context.session.begin(subtransactions=True):
-                self._load_id_and_tenant_id(context, listener)
+                self._load_id(context, listener)
                 listener['provisioning_status'] = constants.PENDING_CREATE
                 listener['operating_status'] = lb_const.OFFLINE
                 # Check for unspecified loadbalancer_id and listener_id and
@@ -412,7 +409,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
 
     def create_pool(self, context, pool):
         with context.session.begin(subtransactions=True):
-            self._load_id_and_tenant_id(context, pool)
+            self._load_id(context, pool)
             pool['provisioning_status'] = constants.PENDING_CREATE
             pool['operating_status'] = lb_const.OFFLINE
 
@@ -484,7 +481,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
     def create_pool_member(self, context, member, pool_id):
         try:
             with context.session.begin(subtransactions=True):
-                self._load_id_and_tenant_id(context, member)
+                self._load_id(context, member)
                 member['pool_id'] = pool_id
                 member['provisioning_status'] = constants.PENDING_CREATE
                 member['operating_status'] = lb_const.OFFLINE
@@ -540,7 +537,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
 
     def create_healthmonitor(self, context, healthmonitor):
         with context.session.begin(subtransactions=True):
-            self._load_id_and_tenant_id(context, healthmonitor)
+            self._load_id(context, healthmonitor)
             healthmonitor['provisioning_status'] = constants.PENDING_CREATE
             hm_db_entry = models.HealthMonitorV2(**healthmonitor)
             context.session.add(hm_db_entry)

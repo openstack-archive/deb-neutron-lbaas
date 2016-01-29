@@ -21,17 +21,17 @@ from neutron.agent.common import config
 from neutron.agent.linux import interface
 from neutron.agent.linux import ip_lib
 from neutron.common import exceptions
+from neutron.common import utils as n_utils
 from neutron import context as ncontext
 from neutron.extensions import portbindings
-from neutron.i18n import _LE, _LW
 from neutron.plugins.common import constants
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
 from oslo_service import service
 from oslo_utils import excutils
-from oslo_utils import importutils
 
+from neutron_lbaas._i18n import _LE, _LW
 from neutron_lbaas.drivers import driver_base
 from neutron_lbaas.extensions import loadbalancerv2
 from neutron_lbaas.services.loadbalancer.agent import agent as lb_agent
@@ -83,14 +83,16 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
         if not self.conf.haproxy.interface_driver:
             self.conf.haproxy.interface_driver = DEFAULT_INTERFACE_DRIVER
         try:
-            vif_driver = importutils.import_object(
-                self.conf.haproxy.interface_driver, self.conf)
+            vif_driver_class = n_utils.load_class_by_alias_or_classname(
+                'neutron.interface_drivers',
+                self.conf.haproxy.interface_driver)
+
         except ImportError:
             with excutils.save_and_reraise_exception():
                 msg = (_LE('Error importing interface driver: %s')
                        % self.conf.haproxy.interface_driver)
                 LOG.exception(msg)
-        self.vif_driver = vif_driver
+        self.vif_driver = vif_driver_class(self.conf)
 
         # instantiate managers here
         self.load_balancer = LoadBalancerManager(self)
@@ -115,8 +117,8 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
                 self.update_instance(loadbalancer)
             except RuntimeError:
                 # do not stop anything this is a minor error
-                LOG.warn(_LW("Existing load balancer %s could not be deployed"
-                             " on the system.") % loadbalancer.id)
+                LOG.warning(_LW("Existing load balancer %s could not be "
+                                "deployed on the system."), loadbalancer.id)
 
     def _retrieve_deployed_instance_dirs(self):
         if not os.path.exists(self.state_path):
@@ -280,7 +282,7 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
 
             return self._parse_stats(raw_stats)
         except socket.error as e:
-            LOG.warn(_LW('Error while connecting to stats socket: %s'), e)
+            LOG.warning(_LW('Error while connecting to stats socket: %s'), e)
             return {}
 
     def _parse_stats(self, raw_stats):
@@ -348,8 +350,8 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
                 if ip_lib.device_exists(device.name):
                     self.vif_driver.unplug(device.name, namespace=namespace)
         except RuntimeError as re:
-            LOG.warn(_LW('An error happened on namespace cleanup: '
-                       '%s') % re.message)
+            LOG.warning(_LW('An error happened on namespace cleanup: '
+                            '%s'), re.message)
         ns.garbage_collect_namespace()
 
     def _kill_processes(self, loadbalancer_id):
@@ -427,8 +429,8 @@ class HaproxyNSDriver(driver_base.LoadBalancerBaseDriver):
             lb_stats['members'] = self._get_servers_stats(parsed_stats)
             return lb_stats
         else:
-            LOG.warn(_LW('Stats socket not found for load balancer %s'),
-                     loadbalancer.id)
+            LOG.warning(_LW('Stats socket not found for load balancer %s'),
+                        loadbalancer.id)
             return {}
 
 

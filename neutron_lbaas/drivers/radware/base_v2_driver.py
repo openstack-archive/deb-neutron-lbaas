@@ -15,6 +15,7 @@
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 
+from neutron_lbaas._i18n import _
 from neutron_lbaas.drivers import driver_base
 
 
@@ -30,6 +31,7 @@ driver_opts = [
                help=_('vDirect user name.')),
     cfg.StrOpt('vdirect_password',
                default='radware',
+               secret=True,
                help=_('vDirect user password.')),
     cfg.StrOpt('service_adc_type',
                default="VA",
@@ -139,6 +141,8 @@ class LoadBalancerManager(driver_base.BaseLoadBalancerManager):
         if self.driver.workflow_exists(lb):
             self.driver.remove_workflow(
                 context, self, lb)
+        else:
+            self.successful_completion(context, lb, delete=True)
 
     @log_helpers.log_method_call
     def refresh(self, context, lb):
