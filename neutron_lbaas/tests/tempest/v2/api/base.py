@@ -93,11 +93,8 @@ class BaseTestCase(base.BaseNetworkTest):
                 cls._try_delete_resource(cls.listeners_client.delete_listener,
                                          listener.get('id'))
                 cls._wait_for_load_balancer_status(lb_id)
-            cls._try_delete_resource(
-                cls.load_balancers_client.delete_load_balancer, lb_id)
+            cls._try_delete_resource(cls._delete_load_balancer, lb_id)
 
-        for lb_id in cls._lbs_to_delete:
-            cls._wait_for_load_balancer_status(lb_id, delete=True)
         super(BaseTestCase, cls).resource_cleanup()
 
     @classmethod
@@ -115,13 +112,13 @@ class BaseTestCase(base.BaseNetworkTest):
 
     @classmethod
     def _create_load_balancer(cls, wait=True, **lb_kwargs):
-        try:
-            lb = cls.load_balancers_client.create_load_balancer(**lb_kwargs)
-            if wait:
-                cls._wait_for_load_balancer_status(lb.get('id'))
-        except Exception:
-            raise Exception(_("Failed to create load balancer..."))
+        lb = cls.load_balancers_client.create_load_balancer(**lb_kwargs)
+        if wait:
+            cls._wait_for_load_balancer_status(lb.get('id'))
+
         cls._lbs_to_delete.append(lb.get('id'))
+        port = cls.client.show_port(lb['vip_port_id'])
+        cls.ports.append(port['port'])
         return lb
 
     @classmethod
@@ -151,7 +148,7 @@ class BaseTestCase(base.BaseNetworkTest):
                                        provisioning_status='ACTIVE',
                                        operating_status='ONLINE',
                                        delete=False):
-        interval_time = 10
+        interval_time = 1
         timeout = 600
         end_time = time.time() + timeout
         lb = {}
@@ -180,15 +177,23 @@ class BaseTestCase(base.BaseNetworkTest):
                     # raise original exception
                     raise e
         else:
-            raise Exception(
-                _("Wait for load balancer ran for {timeout} seconds and did "
-                  "not observe {lb_id} reach {provisioning_status} "
-                  "provisioning status and {operating_status} "
-                  "operating status.").format(
-                      timeout=timeout,
-                      lb_id=load_balancer_id,
-                      provisioning_status=provisioning_status,
-                      operating_status=operating_status))
+            if delete:
+                raise exceptions.TimeoutException(
+                    _("Waited for load balancer {lb_id} to be deleted for "
+                      "{timeout} seconds but can still observe that it "
+                      "exists.").format(
+                          lb_id=load_balancer_id,
+                          timeout=timeout))
+            else:
+                raise exceptions.TimeoutException(
+                    _("Wait for load balancer ran for {timeout} seconds and "
+                      "did not observe {lb_id} reach {provisioning_status} "
+                      "provisioning status and {operating_status} "
+                      "operating status.").format(
+                          timeout=timeout,
+                          lb_id=load_balancer_id,
+                          provisioning_status=provisioning_status,
+                          operating_status=operating_status))
         return lb
 
     @classmethod
