@@ -1,6 +1,6 @@
 neutron-lbaas (1:7.0.2-1) unstable; urgency=medium
 
-  * New upstream release.
+  * New upstream release (Closes: #812702).
   * Uploading to unstable.
   * Added git as build-depends.
   * Fixed debian/copyright order, holders and years.
