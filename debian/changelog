@@ -1,4 +1,4 @@
-neutron-lbaas (1:7.0.0-1) unstable; urgency=medium
+neutron-lbaas (1:7.0.2-1) unstable; urgency=medium
 
   * New upstream release.
   * Uploading to unstable.
