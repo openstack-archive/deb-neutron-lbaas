@@ -2,13 +2,30 @@ Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Neutron LBaaS
 Source: git://github.com/openstack/neutron-lbaas.git
 
-Files: debian/*
-Copyright: 2012-2013, Thomas Goirand <zigo@debian.org>
+Files: *
+Copyright: (c) 2011-2016, The OpenStack Foundation
+           (c) 2013, IBM Corp.
+           (c) 2013-2015, Hewlett-Packard Development Company, L.P.
+           (c) 2014-2015, NEC Corporation
+           (c) 2014-2015, Rackspace, Inc.
+           (c) 2013, New Dream Network, LLC
+           (c) 2014, Red Hat, Inc.
+           (c) 2013, NTT Corporation
+           (c) 2013-2014, Mirantis, Inc.
+           (c) 2014-2015, A10 Networks
+           (c) 2015, VMware, Inc.
+           (c) 2014, Deutsche Telekom AG
+           (c) 2013-2015, Radware LTD.
+           (c) 2013-2014, Embrane, Inc.
+           (c) 2015, Shane McGough, KEMPtechnologies
+           (c) 2014, Brocade Communications Systems, Inc.
+           (c) 2014-2015, Citrix Systems
+           (c) 2010, US Government as represented by the Administrator of NASA
+           (c) 2014, Samsung Electronics
 License: Apache-2.0
 
-Files: *
-Copyright: (c) 2011-2012, OpenStack, LLC.
-           (c) 2013-2014, The OpenStack Foundation
+Files: debian/*
+Copyright: 2012-2016, Thomas Goirand <zigo@debian.org>
 License: Apache-2.0
 
 License: Apache-2.0

@@ -2,6 +2,8 @@ neutron-lbaas (1:7.0.0-1) unstable; urgency=medium
 
   * New upstream release.
   * Uploading to unstable.
+  * Added git as build-depends.
+  * Fixed debian/copyright order, holders and years.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 22 Oct 2015 15:48:15 +0200
 
