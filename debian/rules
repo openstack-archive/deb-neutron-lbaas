@@ -23,7 +23,7 @@ ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))
 		rm -rf .testrepository ; \
 		testr-python$$PYMAJOR init ; \
 		TEMP_REZ=`mktemp -t` ; \
-		PYTHONPATH=$(CURDIR) PYTHON=python$$i testr-python$$PYMAJOR run --subunit 'neutron_lbaas\.tests\.unit\.(?!(.*test_synchronous_driver.TestHaproxyNSDriver.test_cleanup_name.*|.*test_v2_plugin_driver.TestLBaaSDriver.test_wf_created_on_first_member_creation.*|.*test_v2_plugin_driver.TestLBaaSDriverRestClient.test_flip_servers.*))' | tee $$TEMP_REZ | subunit2pyunit ; \
+		PYTHONPATH=$(CURDIR) PYTHON=python$$i testr-python$$PYMAJOR run --subunit 'neutron_lbaas\.tests\.unit\.(?!(.*test_synchronous_driver.TestHaproxyNSDriver.test_cleanup_name.*|.*test_v2_plugin_driver.TestLBaaSDriver.test_wf_created_on_first_member_creation.*|.*test_v2_plugin_driver.TestLBaaSDriverRestClient.test_flip_servers.*|.*test_agent_scheduler\.LBaaSAgentSchedulerTestCase\.test_loadbalancer_unscheduling_on_loadbalancer_deletion.*|.*test_agent_scheduler\.LBaaSAgentSchedulerTestCase\.test_loadbalancer_scheduling_on_loadbalancer_creation.*|.*db\.loadbalancer\.test_db_loadbalancerv2\.LoadBalancerDelegateVIPCreation\.test_create_loadbalancer.*|.*db\.loadbalancer\.test_db_loadbalancerv2\.LbaasLoadBalancerTests\.test_create_loadbalancer_with_vip_address.*|.*db\.loadbalancer\.test_db_loadbalancerv2\.LbaasLoadBalancerTests\.test_create_loadbalancer.*))' | tee $$TEMP_REZ | subunit2pyunit ; \
 		cat $$TEMP_REZ | subunit-filter -s --no-passthrough | subunit-stats ; \
 		rm -f $$TEMP_REZ ; \
 		testr-python$$PYMAJOR slowest ; \

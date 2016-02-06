@@ -4,6 +4,12 @@ neutron-lbaas (1:7.0.2-1) unstable; urgency=medium
   * Uploading to unstable.
   * Added git as build-depends.
   * Fixed debian/copyright order, holders and years.
+  * Blacklisted some tests:
+    test_agent_scheduler.LBaaSAgentSchedulerTestCase.test_loadbalancer_unscheduling_on_loadbalancer_deletion
+    test_agent_scheduler.LBaaSAgentSchedulerTestCase.test_loadbalancer_scheduling_on_loadbalancer_creation
+    db.loadbalancer.test_db_loadbalancerv2.LoadBalancerDelegateVIPCreation.test_create_loadbalancer
+    db.loadbalancer.test_db_loadbalancerv2.LbaasLoadBalancerTests.test_create_loadbalancer_with_vip_address
+    db.loadbalancer.test_db_loadbalancerv2.LbaasLoadBalancerTests.test_create_loadbalancer
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 22 Oct 2015 15:48:15 +0200
 
