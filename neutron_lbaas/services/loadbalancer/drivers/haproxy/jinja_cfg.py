@@ -155,13 +155,25 @@ def _process_tls_certificates(listener):
     if listener.default_tls_container_id:
         tls_cert = _map_cert_tls_container(
             cert_mgr.get_cert(
-                listener.default_tls_container_id,
-                check_only=True))
+                project_id=listener.tenant_id,
+                cert_ref=listener.default_tls_container_id,
+                resource_ref=cert_mgr.get_service_url(
+                    listener.loadbalancer_id),
+                check_only=True
+            )
+        )
     if listener.sni_containers:
         # Retrieve, map and store SNI certificates
         for sni_cont in listener.sni_containers:
             cert_container = _map_cert_tls_container(
-                cert_mgr.get_cert(sni_cont.tls_container_id, check_only=True))
+                cert_mgr.get_cert(
+                    project_id=listener.tenant_id,
+                    cert_ref=sni_cont.tls_container_id,
+                    resource_ref=cert_mgr.get_service_url(
+                        listener.loadbalancer_id),
+                    check_only=True
+                )
+            )
             sni_certs.append(cert_container)
 
     return {'tls_cert': tls_cert, 'sni_certs': sni_certs}
@@ -233,12 +245,14 @@ def _transform_loadbalancer(loadbalancer, haproxy_base_dir):
     :param haproxy_base_dir: location of the instances state data
     :returns: dictionary of transformed load balancer values
     """
-    listeners = [_transform_listener(
-        x, haproxy_base_dir) for x in loadbalancer.listeners]
+    listeners = [_transform_listener(x, haproxy_base_dir)
+        for x in loadbalancer.listeners if x.admin_state_up]
+    pools = [_transform_pool(x) for x in loadbalancer.pools]
     return {
         'name': loadbalancer.name,
         'vip_address': loadbalancer.vip_address,
-        'listeners': listeners
+        'listeners': listeners,
+        'pools': pools
     }
 
 

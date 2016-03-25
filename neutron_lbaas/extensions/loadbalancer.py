@@ -22,10 +22,10 @@ from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
 from neutron.api.v2 import resource_helper
-from neutron.common import exceptions as nexception
 from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services import service_base
+from neutron_lib import exceptions as nexception
 
 from neutron_lbaas._i18n import _
 from neutron_lbaas.extensions import loadbalancerv2
@@ -178,6 +178,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'required_by_policy': True,
                       'is_visible': True},
         'vip_id': {'allow_post': False, 'allow_put': False,
+                   'validate': {'type:uuid': None},
                    'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
                  'validate': {'type:string': None},

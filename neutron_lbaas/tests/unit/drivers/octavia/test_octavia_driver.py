@@ -12,11 +12,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import copy
 import mock
 from oslo_config import cfg
 
 from neutron import context
 from neutron_lbaas.drivers.octavia import driver
+from neutron_lbaas.services.loadbalancer import constants
 from neutron_lbaas.services.loadbalancer import data_models
 from neutron_lbaas.tests.unit.db.loadbalancer import test_db_loadbalancerv2
 
@@ -41,6 +43,10 @@ class ManagerTest(object):
         self.manager.delete(self.context, model)
         self.mocked_req.delete.assert_called_with(url)
 
+    def delete_cascade(self, model, url):
+        self.manager.delete_cascade(self.context, model)
+        self.mocked_req.delete.assert_called_with(url)
+
     # TODO(Banashankar) : Complete refresh function. Need more info.
     def refresh(self):
         pass
@@ -60,11 +66,22 @@ class BaseOctaviaDriverTest(test_db_loadbalancerv2.LbaasPluginDbTestCase):
         sni_container = data_models.SNI(listener_id=id)
         listener = data_models.Listener(id=id, loadbalancer=lb,
                                         sni_containers=[sni_container])
-        pool = data_models.Pool(id=id, listener=listener)
+        pool = data_models.Pool(id=id, loadbalancer=lb)
         member = data_models.Member(id=id, pool=pool)
         hm = data_models.HealthMonitor(id=id, pool=pool)
+        l7policy = data_models.L7Policy(
+            id=id, listener=listener, redirect_pool_id=pool.id,
+            action=constants.L7_POLICY_ACTION_REDIRECT_TO_POOL)
+        l7rule = data_models.L7Rule(
+            id=id, policy=l7policy,
+            type=constants.L7_RULE_TYPE_PATH,
+            compare_type=constants.L7_RULE_COMPARE_TYPE_STARTS_WITH,
+            value='/api')
         lb.listeners = [listener]
+        lb.pools = [pool]
         listener.default_pool = pool
+        listener.l7policies = [l7policy]
+        l7policy.rules = [l7rule]
         pool.members = [member]
         pool.healthmonitor = hm
         return lb
@@ -124,7 +141,7 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
         m.update(lb, lb, lb_url_id, args)
 
         # delete LB test
-        m.delete(lb, lb_url_id)
+        m.delete_cascade(lb, lb_url_id + '/delete_cascade')
 
         # TODO(Banashankar) : refresh n stats fucntions are not yet done.
         #m.refresh()
@@ -154,6 +171,7 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
             'connection_limit': listener.connection_limit,
             'tls_certificate_id': listener.default_tls_container_id,
             'sni_containers': sni_containers,
+            'default_pool_id': listener.default_pool_id,
             'project_id': listener.tenant_id
         }
         m.create(listener, list_url, args)
@@ -173,9 +191,8 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
         pool = self.lb.listeners[0].default_pool
 
         # urls for assert test.
-        pool_url = '/v1/loadbalancers/%s/listeners/%s/pools' % (
-            pool.listener.loadbalancer.id,
-            pool.listener.id)
+        pool_url = '/v1/loadbalancers/%s/pools' % (
+            pool.loadbalancer.id)
         pool_url_id = pool_url + "/%s" % pool.id
 
         # Test create pool.
@@ -194,6 +211,8 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
                 'type': pool.session_persistence.type,
                 'cookie_name': pool.session_persistence.cookie_name,
             }
+        else:
+            args['session_persistence'] = None
         m.create(pool, pool_url, args)
 
         # Test update pool.
@@ -211,9 +230,8 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
         member = self.lb.listeners[0].default_pool.members[0]
 
         # urls for assert.
-        mem_url = '/v1/loadbalancers/%s/listeners/%s/pools/%s/members' % (
-            member.pool.listener.loadbalancer.id,
-            member.pool.listener.id,
+        mem_url = '/v1/loadbalancers/%s/pools/%s/members' % (
+            member.pool.loadbalancer.id,
             member.pool.id)
         mem_url_id = mem_url + "/%s" % member.id
 
@@ -249,9 +267,8 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
         hm = self.lb.listeners[0].default_pool.healthmonitor
 
         # urls for assert.
-        hm_url = '/v1/loadbalancers/%s/listeners/%s/pools/%s/healthmonitor' % (
-            hm.pool.listener.loadbalancer.id,
-            hm.pool.listener.id,
+        hm_url = '/v1/loadbalancers/%s/pools/%s/healthmonitor' % (
+            hm.pool.loadbalancer.id,
             hm.pool.id)
 
         # Test HM create.
@@ -276,6 +293,136 @@ class TestOctaviaDriver(BaseOctaviaDriverTest):
 
         # Test HM delete
         m.delete(hm, hm_url)
+
+    def test_l7_policy_ops_reject(self):
+        m = ManagerTest(self, self.driver.l7policy,
+                        self.driver.req)
+
+        l7p = copy.deepcopy(self.lb.listeners[0].l7policies[0])
+        l7p.action = constants.L7_POLICY_ACTION_REJECT
+
+        # urls for assert.
+        l7p_url = '/v1/loadbalancers/%s/listeners/%s/l7policies' % (
+            l7p.listener.loadbalancer.id,
+            l7p.listener.id)
+        l7p_url_id = l7p_url + "/%s" % l7p.id
+
+        # Test L7Policy create.
+        # args for create and update assert.
+        args = {
+            'id': l7p.id,
+            'name': l7p.name,
+            'description': l7p.description,
+            'action': constants.L7_POLICY_ACTION_REJECT,
+            'position': l7p.position,
+            'enabled': l7p.admin_state_up
+        }
+        m.create(l7p, l7p_url, args)
+
+        # Test L7Policy update
+        del args['id']
+        m.update(l7p, l7p, l7p_url_id, args)
+
+        # Test L7Policy delete
+        m.delete(l7p, l7p_url_id)
+
+    def test_l7_policy_ops_rdr_pool(self):
+        m = ManagerTest(self, self.driver.l7policy,
+                        self.driver.req)
+
+        l7p = copy.deepcopy(self.lb.listeners[0].l7policies[0])
+        l7p.action = constants.L7_POLICY_ACTION_REDIRECT_TO_POOL
+
+        # urls for assert.
+        l7p_url = '/v1/loadbalancers/%s/listeners/%s/l7policies' % (
+            l7p.listener.loadbalancer.id,
+            l7p.listener.id)
+        l7p_url_id = l7p_url + "/%s" % l7p.id
+
+        # Test L7Policy create.
+        # args for create and update assert.
+        args = {
+            'id': l7p.id,
+            'name': l7p.name,
+            'description': l7p.description,
+            'action': constants.L7_POLICY_ACTION_REDIRECT_TO_POOL,
+            'redirect_pool_id': l7p.redirect_pool_id,
+            'position': l7p.position,
+            'enabled': l7p.admin_state_up
+        }
+        m.create(l7p, l7p_url, args)
+
+        # Test L7Policy update
+        del args['id']
+        m.update(l7p, l7p, l7p_url_id, args)
+
+        # Test L7Policy delete
+        m.delete(l7p, l7p_url_id)
+
+    def test_l7_policy_ops_rdr_url(self):
+        m = ManagerTest(self, self.driver.l7policy,
+                        self.driver.req)
+
+        l7p = copy.deepcopy(self.lb.listeners[0].l7policies[0])
+        l7p.action = constants.L7_POLICY_ACTION_REDIRECT_TO_URL
+
+        # urls for assert.
+        l7p_url = '/v1/loadbalancers/%s/listeners/%s/l7policies' % (
+            l7p.listener.loadbalancer.id,
+            l7p.listener.id)
+        l7p_url_id = l7p_url + "/%s" % l7p.id
+
+        # Test L7Policy create.
+        # args for create and update assert.
+        args = {
+            'id': l7p.id,
+            'name': l7p.name,
+            'description': l7p.description,
+            'action': constants.L7_POLICY_ACTION_REDIRECT_TO_URL,
+            'redirect_url': l7p.redirect_url,
+            'position': l7p.position,
+            'enabled': l7p.admin_state_up
+        }
+        m.create(l7p, l7p_url, args)
+
+        # Test L7Policy update
+        del args['id']
+        m.update(l7p, l7p, l7p_url_id, args)
+
+        # Test L7Policy delete
+        m.delete(l7p, l7p_url_id)
+
+    def test_l7_rule_ops(self):
+        m = ManagerTest(self, self.driver.l7rule,
+                        self.driver.req)
+
+        l7r = self.lb.listeners[0].l7policies[0].rules[0]
+
+        # urls for assert.
+        l7r_url = '/v1/loadbalancers/%s/listeners/%s/l7policies/%s/l7rules' % (
+            l7r.policy.listener.loadbalancer.id,
+            l7r.policy.listener.id,
+            l7r.policy.id)
+        l7r_url_id = l7r_url + "/%s" % l7r.id
+
+        # Test L7Rule create.
+        # args for create and update assert.
+        args = {
+            'id': l7r.id,
+            'type': l7r.type,
+            'compare_type': l7r.compare_type,
+            'key': l7r.key,
+            'value': l7r.value,
+            'invert': l7r.invert
+        }
+        m.create(l7r, l7r_url, args)
+
+        # Test L7rule update
+        del args['id']
+        m.update(l7r, l7r, l7r_url_id, args)
+
+        # Test L7Rule delete
+        m.delete(l7r, l7r_url_id)
 
 
 class TestThreadedDriver(BaseOctaviaDriverTest):

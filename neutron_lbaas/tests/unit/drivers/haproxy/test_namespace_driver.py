@@ -18,8 +18,8 @@ import contextlib
 import socket
 
 import mock
-from neutron.common import exceptions
 from neutron.plugins.common import constants
+from neutron_lib import exceptions
 
 from neutron_lbaas.drivers.haproxy import namespace_driver
 from neutron_lbaas.services.loadbalancer import data_models
@@ -537,6 +537,7 @@ class BaseTestListenerManager(BaseTestLoadBalancerManager):
         self.listener2 = data_models.Listener(id='listener2')
         self.in_listener.loadbalancer = self.in_lb
         self.listener2.loadbalancer = self.in_lb
+        self.in_lb.listeners = [self.in_listener, self.listener2]
         self.refresh = self.driver.loadbalancer.refresh
 
 
@@ -582,7 +583,9 @@ class BaseTestPoolManager(BaseTestListenerManager):
         super(BaseTestPoolManager, self).setUp()
         self.in_pool = data_models.Pool(id='pool1')
         self.in_listener.default_pool = self.in_pool
-        self.in_pool.listener = self.in_listener
+        self.in_pool.loadbalancer = self.in_lb
+        self.in_pool.listeners = [self.in_listener]
+        self.in_lb.pools = [self.in_pool]
 
 
 class TestPoolManager(BaseTestPoolManager):

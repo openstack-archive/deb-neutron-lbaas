@@ -13,15 +13,17 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import re
+
 from neutron.api.v2 import attributes
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
-from neutron.common import constants as n_constants
-from neutron.common import exceptions as n_exc
 from neutron.db import common_db_mixin as base_db
 from neutron import manager
 from neutron.plugins.common import constants
+from neutron_lib import constants as n_constants
+from neutron_lib import exceptions as n_exc
 from oslo_db import exception
 from oslo_log import log as logging
 from oslo_utils import excutils
@@ -32,7 +34,9 @@ from sqlalchemy.orm import exc
 from neutron_lbaas._i18n import _
 from neutron_lbaas import agent_scheduler
 from neutron_lbaas.db.loadbalancer import models
+from neutron_lbaas.extensions import l7
 from neutron_lbaas.extensions import loadbalancerv2
+from neutron_lbaas.extensions import sharedpools
 from neutron_lbaas.services.loadbalancer import constants as lb_const
 from neutron_lbaas.services.loadbalancer import data_models
 
@@ -64,6 +68,7 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
         except exc.NoResultFound:
             with excutils.save_and_reraise_exception(reraise=False) as ctx:
                 if issubclass(model, (models.LoadBalancer, models.Listener,
+                                      models.L7Policy, models.L7Rule,
                                       models.PoolV2, models.MemberV2,
                                       models.HealthMonitorV2,
                                       models.LoadBalancerStatistics,
@@ -274,21 +279,89 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                 raise loadbalancerv2.EntityNotFound(
                     name=models.LoadBalancer.NAME, id=lb_id)
         if pool_id:
+            if not self._resource_exists(context, models.PoolV2, pool_id):
+                raise loadbalancerv2.EntityNotFound(
+                    name=models.PoolV2.NAME, id=pool_id)
             pool = self._get_resource(context, models.PoolV2, pool_id)
             if ((pool.protocol, listener.get('protocol'))
                 not in lb_const.LISTENER_POOL_COMPATIBLE_PROTOCOLS):
                 raise loadbalancerv2.ListenerPoolProtocolMismatch(
                     listener_proto=listener['protocol'],
                     pool_proto=pool.protocol)
-            filters = {'default_pool_id': [pool_id]}
-            listenerpools = self._get_resources(context,
-                                                models.Listener,
-                                                filters=filters)
-            if listenerpools:
-                raise loadbalancerv2.EntityInUse(
-                    entity_using=models.Listener.NAME,
-                    id=listenerpools[0].id,
-                    entity_in_use=models.PoolV2.NAME)
+        if lb_id and pool_id:
+            pool = self._get_resource(context, models.PoolV2, pool_id)
+            if pool.loadbalancer_id != lb_id:
+                raise sharedpools.ListenerPoolLoadbalancerMismatch(
+                    pool_id=pool_id,
+                    lb_id=pool.loadbalancer_id)
+
+    def _validate_l7policy_data(self, context, l7policy):
+        if l7policy['action'] == lb_const.L7_POLICY_ACTION_REDIRECT_TO_POOL:
+            if not l7policy['redirect_pool_id']:
+                raise l7.L7PolicyRedirectPoolIdMissing()
+            if not self._resource_exists(
+                context, models.PoolV2, l7policy['redirect_pool_id']):
+                raise loadbalancerv2.EntityNotFound(
+                    name=models.PoolV2.NAME, id=l7policy['redirect_pool_id'])
+
+            pool = self._get_resource(
+                context, models.PoolV2, l7policy['redirect_pool_id'])
+
+            listener = self._get_resource(
+                context, models.Listener, l7policy['listener_id'])
+
+            if pool.loadbalancer_id != listener.loadbalancer_id:
+                raise sharedpools.ListenerAndPoolMustBeOnSameLoadbalancer()
+
+        if (l7policy['action'] == lb_const.L7_POLICY_ACTION_REDIRECT_TO_URL
+            and 'redirect_url' not in l7policy):
+            raise l7.L7PolicyRedirectUrlMissing()
+
+    def _validate_l7rule_data(self, context, rule):
+        def _validate_regex(regex):
+            try:
+                re.compile(regex)
+            except Exception as e:
+                raise l7.L7RuleInvalidRegex(e=str(e))
+
+        def _validate_key(key):
+            p = re.compile(lb_const.HTTP_HEADER_COOKIE_NAME_REGEX)
+            if not p.match(key):
+                raise l7.L7RuleInvalidKey()
+
+        def _validate_cookie_value(value):
+            p = re.compile(lb_const.HTTP_COOKIE_VALUE_REGEX)
+            if not p.match(value):
+                raise l7.L7RuleInvalidCookieValue()
+
+        def _validate_non_cookie_value(value):
+            p = re.compile(lb_const.HTTP_HEADER_VALUE_REGEX)
+            q = re.compile(lb_const.HTTP_QUOTED_HEADER_VALUE_REGEX)
+            if not p.match(value) and not q.match(value):
+                raise l7.L7RuleInvalidHeaderValue()
+
+        if rule['compare_type'] == lb_const.L7_RULE_COMPARE_TYPE_REGEX:
+            _validate_regex(rule['value'])
+
+        if rule['type'] in [lb_const.L7_RULE_TYPE_HEADER,
+                            lb_const.L7_RULE_TYPE_COOKIE]:
+            if ('key' not in rule or not rule['key']):
+                raise l7.L7RuleKeyMissing()
+            _validate_key(rule['key'])
+
+        if rule['compare_type'] != lb_const.L7_RULE_COMPARE_TYPE_REGEX:
+            if rule['type'] == lb_const.L7_RULE_TYPE_COOKIE:
+                _validate_cookie_value(rule['value'])
+            else:
+                if rule['type'] in [lb_const.L7_RULE_TYPE_HEADER,
+                                  lb_const.L7_RULE_TYPE_HOST_NAME,
+                                  lb_const.L7_RULE_TYPE_PATH]:
+                    _validate_non_cookie_value(rule['value'])
+                elif (rule['compare_type'] ==
+                      lb_const.L7_RULE_COMPARE_TYPE_EQUAL_TO):
+                    _validate_non_cookie_value(rule['value'])
+                else:
+                    raise l7.L7RuleUnsupportedCompareType(type=rule['type'])
 
     def _convert_api_to_db(self, listener):
         # NOTE(blogan): Converting the values for db models for now to
@@ -424,14 +497,6 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             context.session.add(pool_db)
         return data_models.Pool.from_sqlalchemy_model(pool_db)
 
-    def create_pool_and_add_to_listener(self, context, pool, listener_id):
-        with context.session.begin(subtransactions=True):
-            db_pool = self.create_pool(context, pool)
-            self.update_listener(context, listener_id,
-                                 {'default_pool_id': db_pool.id})
-            db_pool = self.get_pool(context, db_pool.id)
-        return data_models.Pool.from_sqlalchemy_model(db_pool)
-
     def update_pool(self, context, id, pool):
         with context.session.begin(subtransactions=True):
             pool_db = self._get_resource(context, models.PoolV2, id)
@@ -452,12 +517,19 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                         id=hmpools[0].id,
                         entity_in_use=models.HealthMonitorV2.NAME)
 
-            sp = pool.pop('session_persistence', None)
-            if sp:
-                self._update_pool_session_persistence(context, id, sp)
-            else:
-                self._delete_session_persistence(context, id)
+            # Only update or delete session persistence if it was part
+            # of the API request.
+            if 'session_persistence' in pool.keys():
+                sp = pool.pop('session_persistence')
+                if sp is None or sp == {}:
+                    self._delete_session_persistence(context, id)
+                else:
+                    self._update_pool_session_persistence(context, id, sp)
 
+            # sqlalchemy cries if listeners is defined.
+            listeners = pool.get('listeners')
+            if listeners:
+                del pool['listeners']
             pool_db.update(pool)
         context.session.refresh(pool_db)
         return data_models.Pool.from_sqlalchemy_model(pool_db)
@@ -465,8 +537,17 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
     def delete_pool(self, context, id):
         with context.session.begin(subtransactions=True):
             pool_db = self._get_resource(context, models.PoolV2, id)
-            self.update_listener(context, pool_db.listener.id,
-                                 {'default_pool_id': None})
+            for l in pool_db.listeners:
+                self.update_listener(context, l.id,
+                                     {'default_pool_id': None})
+            for l in pool_db.loadbalancer.listeners:
+                for p in l.l7_policies:
+                    if (p.action == lb_const.L7_POLICY_ACTION_REDIRECT_TO_POOL
+                        and p.redirect_pool_id == id):
+                        self.update_l7policy(
+                            context, p.id,
+                            {'redirect_pool_id': None,
+                             'action': lb_const.L7_POLICY_ACTION_REJECT})
             context.session.delete(pool_db)
 
     def get_pools(self, context, filters=None):
@@ -526,9 +607,11 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
         with context.session.begin(subtransactions=True):
             hm_db = self.create_healthmonitor(context, healthmonitor)
             pool = self.get_pool(context, pool_id)
-            # do not want listener, members, or healthmonitor in dict
-            pool_dict = pool.to_dict(listener=False, members=False,
-                                     healthmonitor=False)
+            # do not want listener, members, healthmonitor or loadbalancer
+            # in dict
+            pool_dict = pool.to_dict(listeners=False, members=False,
+                                     healthmonitor=False, loadbalancer=False,
+                                     listener=False, loadbalancer_id=False)
             pool_dict['healthmonitor_id'] = hm_db.id
             self.update_pool(context, pool_id, pool_dict)
             hm_db = self._get_resource(context, models.HealthMonitorV2,
@@ -554,6 +637,8 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
         with context.session.begin(subtransactions=True):
             hm_db_entry = self._get_resource(context,
                                              models.HealthMonitorV2, id)
+            # TODO(sbalukoff): Clear out pool.healthmonitor_ids referencing
+            # old healthmonitor ID.
             context.session.delete(hm_db_entry)
 
     def get_healthmonitor(self, context, id):
@@ -581,6 +666,143 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
                                           loadbalancer_id)
         return data_models.LoadBalancerStatistics.from_sqlalchemy_model(
             loadbalancer.stats)
+
+    def create_l7policy(self, context, l7policy):
+        if l7policy['redirect_pool_id'] == attributes.ATTR_NOT_SPECIFIED:
+            l7policy['redirect_pool_id'] = None
+        self._validate_l7policy_data(context, l7policy)
+
+        with context.session.begin(subtransactions=True):
+            listener_id = l7policy.get('listener_id')
+            listener_db = self._get_resource(
+                context, models.Listener, listener_id)
+
+            if not listener_db:
+                raise loadbalancerv2.EntityNotFound(
+                    name=models.Listener.NAME, id=listener_id)
+            self._load_id(context, l7policy)
+
+            l7policy['provisioning_status'] = constants.PENDING_CREATE
+
+            l7policy_db = models.L7Policy(**l7policy)
+            # MySQL int fields are by default 32-bit whereas handy system
+            # constants like sys.maxsize are 64-bit on most platforms today.
+            # Hence the reason this is 2147483647 (2^31 - 1) instead of an
+            # elsewhere-defined constant.
+            if l7policy['position'] == 2147483647:
+                listener_db.l7_policies.append(l7policy_db)
+            else:
+                listener_db.l7_policies.insert(l7policy['position'] - 1,
+                                               l7policy_db)
+
+            listener_db.l7_policies.reorder()
+
+        return data_models.L7Policy.from_sqlalchemy_model(l7policy_db)
+
+    def update_l7policy(self, context, id, l7policy):
+        with context.session.begin(subtransactions=True):
+
+            l7policy_db = self._get_resource(context, models.L7Policy, id)
+
+            if 'action' in l7policy:
+                l7policy['listener_id'] = l7policy_db.listener_id
+                self._validate_l7policy_data(context, l7policy)
+
+            if ('position' not in l7policy or
+                l7policy['position'] == 2147483647 or
+                l7policy_db.position == l7policy['position']):
+                l7policy_db.update(l7policy)
+            else:
+                listener_id = l7policy_db.listener_id
+                listener_db = self._get_resource(
+                    context, models.Listener, listener_id)
+                l7policy_db = listener_db.l7_policies.pop(
+                    l7policy_db.position - 1)
+
+                l7policy_db.update(l7policy)
+                listener_db.l7_policies.insert(l7policy['position'] - 1,
+                                               l7policy_db)
+                listener_db.l7_policies.reorder()
+
+        context.session.refresh(l7policy_db)
+        return data_models.L7Policy.from_sqlalchemy_model(l7policy_db)
+
+    def delete_l7policy(self, context, id):
+        with context.session.begin(subtransactions=True):
+            l7policy_db = self._get_resource(context, models.L7Policy, id)
+            listener_id = l7policy_db.listener_id
+            listener_db = self._get_resource(
+                context, models.Listener, listener_id)
+            listener_db.l7_policies.remove(l7policy_db)
+
+    def get_l7policy(self, context, id):
+        l7policy_db = self._get_resource(context, models.L7Policy, id)
+        return data_models.L7Policy.from_sqlalchemy_model(l7policy_db)
+
+    def get_l7policies(self, context, filters=None):
+        l7policy_dbs = self._get_resources(context, models.L7Policy,
+                                           filters=filters)
+        return [data_models.L7Policy.from_sqlalchemy_model(l7policy_db)
+                for l7policy_db in l7policy_dbs]
+
+    def create_l7policy_rule(self, context, rule, l7policy_id):
+        with context.session.begin(subtransactions=True):
+            if not self._resource_exists(context, models.L7Policy,
+                                         l7policy_id):
+                raise loadbalancerv2.EntityNotFound(
+                    name=models.L7Policy.NAME, id=l7policy_id)
+            self._validate_l7rule_data(context, rule)
+            self._load_id(context, rule)
+            rule['l7policy_id'] = l7policy_id
+            rule['provisioning_status'] = constants.PENDING_CREATE
+            rule_db = models.L7Rule(**rule)
+            context.session.add(rule_db)
+        return data_models.L7Rule.from_sqlalchemy_model(rule_db)
+
+    def update_l7policy_rule(self, context, id, rule, l7policy_id):
+        with context.session.begin(subtransactions=True):
+            if not self._resource_exists(context, models.L7Policy,
+                                         l7policy_id):
+                raise l7.RuleNotFoundForL7Policy(
+                    l7policy_id=l7policy_id, rule_id=id)
+
+            rule_db = self._get_resource(context, models.L7Rule, id)
+            # If user did not intend to change all parameters,
+            # already stored parameters will be used for validations
+            if not rule.get('type'):
+                rule['type'] = rule_db.type
+            if not rule.get('value'):
+                rule['value'] = rule_db.value
+            if not rule.get('compare_type'):
+                rule['compare_type'] = rule_db.compare_type
+
+            self._validate_l7rule_data(context, rule)
+            rule_db = self._get_resource(context, models.L7Rule, id)
+            rule_db.update(rule)
+        context.session.refresh(rule_db)
+        return data_models.L7Rule.from_sqlalchemy_model(rule_db)
+
+    def delete_l7policy_rule(self, context, id):
+        with context.session.begin(subtransactions=True):
+            rule_db_entry = self._get_resource(context, models.L7Rule, id)
+            context.session.delete(rule_db_entry)
+
+    def get_l7policy_rule(self, context, id, l7policy_id):
+        rule_db = self._get_resource(context, models.L7Rule, id)
+        if rule_db.l7policy_id != l7policy_id:
+            raise l7.RuleNotFoundForL7Policy(
+                l7policy_id=l7policy_id, rule_id=id)
+        return data_models.L7Rule.from_sqlalchemy_model(rule_db)
+
+    def get_l7policy_rules(self, context, l7policy_id, filters=None):
+        if filters:
+            filters.update(filters)
+        else:
+            filters = {'l7policy_id': [l7policy_id]}
+        rule_dbs = self._get_resources(context, models.L7Rule,
+                                       filters=filters)
+        return [data_models.L7Rule.from_sqlalchemy_model(rule_db)
+                for rule_db in rule_dbs]
 
 
 def _prevent_lbaasv2_port_delete_callback(resource, event, trigger, **kwargs):

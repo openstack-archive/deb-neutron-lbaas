@@ -101,17 +101,20 @@ RET_LISTENER_TLS_SNI = {
 RET_LB = {
     'name': 'test-lb',
     'vip_address': '10.0.0.2',
-    'listeners': [RET_LISTENER]}
+    'listeners': [RET_LISTENER],
+    'pools': [RET_POOL]}
 
 RET_LB_TLS = {
     'name': 'test-lb',
     'vip_address': '10.0.0.2',
-    'listeners': [RET_LISTENER_TLS]}
+    'listeners': [RET_LISTENER_TLS],
+    'pools': [RET_POOL]}
 
 RET_LB_TLS_SNI = {
     'name': 'test-lb',
     'vip_address': '10.0.0.2',
-    'listeners': [RET_LISTENER_TLS_SNI]}
+    'listeners': [RET_LISTENER_TLS_SNI],
+    'pools': [RET_POOL]}
 
 
 def sample_loadbalancer_tuple(proto=None, monitor=True, persistence=True,
@@ -119,7 +122,7 @@ def sample_loadbalancer_tuple(proto=None, monitor=True, persistence=True,
     proto = 'HTTP' if proto is None else proto
     in_lb = collections.namedtuple(
         'loadbalancer', 'id, name, vip_address, protocol, vip_port, '
-                        'listeners')
+                        'listeners, pools')
     return in_lb(
         id='sample_loadbalancer_id_1',
         name='test-lb',
@@ -130,7 +133,10 @@ def sample_loadbalancer_tuple(proto=None, monitor=True, persistence=True,
                                          persistence=persistence,
                                          persistence_type=persistence_type,
                                          tls=tls,
-                                         sni=sni)]
+                                         sni=sni)],
+        pools=[sample_pool_tuple(proto=proto, monitor=monitor,
+                                 persistence=persistence,
+                                 persistence_type=persistence_type)]
     )
 
 
@@ -146,18 +152,20 @@ def sample_listener_tuple(proto=None, monitor=True, persistence=True,
     proto = 'HTTP' if proto is None else proto
     port = '443' if proto is 'HTTPS' or proto is 'TERMINATED_HTTPS' else '80'
     in_listener = collections.namedtuple(
-        'listener', 'id, protocol_port, protocol, default_pool, '
-                    'connection_limit, default_tls_container_id, '
+        'listener', 'id, tenant_id, protocol_port, protocol, default_pool, '
+        'connection_limit, admin_state_up, default_tls_container_id, '
                     'sni_container_ids, default_tls_container, '
-                    'sni_containers')
+                    'sni_containers, loadbalancer_id')
     return in_listener(
         id='sample_listener_id_1',
+        tenant_id='sample_tenant_id',
         protocol_port=port,
         protocol=proto,
         default_pool=sample_pool_tuple(
             proto=proto, monitor=monitor, persistence=persistence,
             persistence_type=persistence_type),
         connection_limit=98,
+        admin_state_up=True,
         default_tls_container_id='cont_id_1' if tls else '',
         sni_container_ids=['cont_id_2', 'cont_id_3'] if sni else [],
         default_tls_container=sample_tls_container_tuple(
@@ -181,7 +189,8 @@ def sample_listener_tuple(proto=None, monitor=True, persistence=True,
                     private_key='--imakey3--\n', intermediates=[
                         '--imainter3--\n', '--imainter3too--\n'],
                     primary_cn='fakeCN2'))]
-        if sni else []
+        if sni else [],
+        loadbalancer_id='sample_loadbalancer_id_1'
     )
 
 

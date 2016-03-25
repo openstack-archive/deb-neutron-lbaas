@@ -24,10 +24,10 @@ from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import base
 from neutron.api.v2 import resource_helper
-from neutron.common import exceptions as nexception
 from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services import service_base
+from neutron_lib import exceptions as nexception
 
 from neutron_lbaas._i18n import _
 from neutron_lbaas.services.loadbalancer import constants as lb_const
@@ -101,11 +101,6 @@ class MemberAddressTypeSubnetTypeMismatch(nexception.NeutronException):
 
 class DriverError(nexception.NeutronException):
     message = _("An error happened in the driver")
-
-
-class LBConfigurationUnsupported(nexception.NeutronException):
-    message = _("Load balancer %(load_balancer_id)s configuration is not "
-                "supported by driver %(driver_name)s")
 
 
 class SessionPersistenceConfigurationInvalid(nexception.BadRequest):
@@ -453,6 +448,7 @@ class Loadbalancerv2(extensions.ExtensionDescriptor):
         action_map = {'loadbalancer': {'stats': 'GET', 'statuses': 'GET'}}
         plural_mappings['members'] = 'member'
         plural_mappings['sni_container_refs'] = 'sni_container_ref'
+        plural_mappings['sni_container_ids'] = 'sni_container_id'
         attr.PLURALS.update(plural_mappings)
         resources = resource_helper.build_resource_info(
             plural_mappings,
@@ -466,6 +462,7 @@ class Loadbalancerv2(extensions.ExtensionDescriptor):
             # Special handling needed for sub-resources with 'y' ending
             # (e.g. proxies -> proxy)
             resource_name = collection_name[:-1]
+
             parent = SUB_RESOURCE_ATTRIBUTE_MAP[collection_name].get('parent')
             params = SUB_RESOURCE_ATTRIBUTE_MAP[collection_name].get(
                 'parameters')
@@ -630,4 +627,44 @@ class LoadBalancerPluginBaseV2(service_base.ServicePluginBase):
 
     @abc.abstractmethod
     def statuses(self, context, loadbalancer_id):
+        pass
+
+    def get_l7policies(self, context, filters=None, fields=None):
+        pass
+
+    @abc.abstractmethod
+    def get_l7policy(self, context, id, fields=None):
+        pass
+
+    @abc.abstractmethod
+    def create_l7policy(self, context, l7policy):
+        pass
+
+    @abc.abstractmethod
+    def update_l7policy(self, context, id, l7policy):
+        pass
+
+    @abc.abstractmethod
+    def delete_l7policy(self, context, id):
+        pass
+
+    @abc.abstractmethod
+    def get_l7policy_rules(self, context, l7policy_id,
+                           filters=None, fields=None):
+        pass
+
+    @abc.abstractmethod
+    def get_l7policy_rule(self, context, id, l7policy_id, fields=None):
+        pass
+
+    @abc.abstractmethod
+    def create_l7policy_rule(self, context, rule, l7policy_id):
+        pass
+
+    @abc.abstractmethod
+    def update_l7policy_rule(self, context, id, rule, l7policy_id):
+        pass
+
+    @abc.abstractmethod
+    def delete_l7policy_rule(self, context, id, l7policy_id):
         pass

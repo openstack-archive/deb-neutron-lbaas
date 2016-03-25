@@ -43,6 +43,7 @@ OPTS = [
     ),
     cfg.StrOpt(
         'admin_password',
+        secret=True,
         default='password',
         help=_('The service admin password'),
     ),
@@ -70,6 +71,11 @@ OPTS = [
         'auth_version',
         default='2',
         help=_('The auth version used to authenticate'),
+    ),
+    cfg.StrOpt(
+        'endpoint_type',
+        default='public',
+        help=_('The endpoint_type to be used')
     )
 ]
 

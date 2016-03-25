@@ -7,8 +7,12 @@ TEMPEST_CONFIG_DIR="$BASE/new/tempest/etc"
 SCRIPTS_DIR="/usr/os-testr-env/bin"
 OCTAVIA_DIR="$BASE/new/octavia"
 
-LBAAS_VERSION=$1
-LBAAS_TEST=$2
+# Sort out our gate args
+. `dirname "$0"`/decode_args.sh
+
+LBAAS_VERSION=$lbaasversion
+LBAAS_TEST=$lbaasenv
+LBAAS_DRIVER=$lbaasdriver
 
 if [ "$LBAAS_VERSION" = "lbaasv1" ]; then
     testenv="apiv1"
@@ -16,9 +20,15 @@ else
     testenv="apiv2"
     case "$LBAAS_TEST" in
         api)
-            # Temporarily only test a small subset
-            # Remove this once zuul/layout.yaml is updated
-            test_subset="load_balancers"
+            if [ "$LBAAS_DRIVER" = "namespace" ]; then
+                test_subset="load_balancers "
+                test_subset+="listeners "
+                test_subset+="pools "
+                test_subset+="members "
+                test_subset+="health_monitor"
+            else
+                testenv=${LBAAS_TEST:-"apiv2"}
+            fi
             ;;
         minimal)
             # Temporarily just do the happy path
@@ -72,7 +82,9 @@ owner=tempest
 # Set owner permissions according to job's requirements.
 cd $NEUTRON_LBAAS_DIR
 sudo chown -R $owner:stack $NEUTRON_LBAAS_DIR
-sudo chown -R $owner:stack $OCTAVIA_DIR
+if [ "$lbaasdriver" = "octavia" ]; then
+    sudo chown -R $owner:stack $OCTAVIA_DIR
+fi
 
 sudo_env=" OS_TESTR_CONCURRENCY=1"
 

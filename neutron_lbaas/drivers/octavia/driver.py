@@ -20,12 +20,15 @@ from neutron import context as ncontext
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_serialization import jsonutils
+from oslo_service import service
 from oslo_utils import excutils
 import requests
 
 from neutron_lbaas._i18n import _
 from neutron_lbaas.common import keystone
 from neutron_lbaas.drivers import driver_base
+from neutron_lbaas.drivers.octavia import octavia_messaging_consumer
+from neutron_lbaas.services.loadbalancer import constants
 
 LOG = logging.getLogger(__name__)
 VERSION = "1.0.1"
@@ -53,8 +56,9 @@ OPTS = [
         default=False,
         help=_('True if Octavia will be responsible for allocating the VIP.'
                ' False if neutron-lbaas will allocate it and pass to Octavia.')
-    ),
+    )
 ]
+
 cfg.CONF.register_opts(OPTS, 'octavia')
 
 
@@ -97,7 +101,7 @@ def thread_op(manager, entity, delete=False, lb_create=False):
 def async_op(func):
     @wraps(func)
     def func_wrapper(*args, **kwargs):
-        d = (func.__name__ == 'delete')
+        d = (func.__name__ == 'delete' or func.__name__ == 'delete_cascade')
         lb_create = ((func.__name__ == 'create') and
                      isinstance(args[0], LoadBalancerManager))
         try:
@@ -167,7 +171,11 @@ class OctaviaDriver(driver_base.LoadBalancerBaseDriver):
         self.pool = PoolManager(self)
         self.member = MemberManager(self)
         self.health_monitor = HealthMonitorManager(self)
-
+        self.l7policy = L7PolicyManager(self)
+        self.l7rule = L7RuleManager(self)
+        self.octavia_consumer = octavia_messaging_consumer.OctaviaConsumer(
+            self)
+        service.launch(cfg.CONF, self.octavia_consumer)
         LOG.debug("OctaviaDriver: initialized, version=%s", VERSION)
 
     @property
@@ -187,6 +195,10 @@ class LoadBalancerManager(driver_base.BaseLoadBalancerManager):
     @property
     def allocates_vip(self):
         return cfg.CONF.octavia.allocates_vip
+
+    @property
+    def deletes_cascade(self):
+        return True
 
     def create_and_allocate_vip(self, context, lb):
         self.create(context, lb)
@@ -230,6 +242,10 @@ class LoadBalancerManager(driver_base.BaseLoadBalancerManager):
     def get(self, lb):
         return self.driver.req.get(self._url(lb, lb.id))
 
+    @async_op
+    def delete_cascade(self, context, lb):
+        self.driver.req.delete(self._url(lb, lb.id) + '/delete_cascade')
+
 
 class ListenerManager(driver_base.BaseListenerManager):
 
@@ -252,6 +268,7 @@ class ListenerManager(driver_base.BaseListenerManager):
             'protocol_port': listener.protocol_port,
             'connection_limit': listener.connection_limit,
             'tls_certificate_id': listener.default_tls_container_id,
+            'default_pool_id': listener.default_pool_id,
             'sni_containers': sni_container_ids
         }
         if create:
@@ -277,9 +294,8 @@ class PoolManager(driver_base.BasePoolManager):
 
     @staticmethod
     def _url(pool, id=None):
-        s = '/v1/loadbalancers/%s/listeners/%s/pools' % (
-            pool.listener.loadbalancer.id,
-            pool.listener.id)
+        s = '/v1/loadbalancers/%s/pools' % (
+            pool.loadbalancer.id)
         if id:
             s += '/%s' % id
         return s
@@ -298,9 +314,13 @@ class PoolManager(driver_base.BasePoolManager):
                 'type': pool.session_persistence.type,
                 'cookie_name': pool.session_persistence.cookie_name,
             }
+        else:
+            args['session_persistence'] = None
         if create:
             args['project_id'] = pool.tenant_id
             args['id'] = pool.id
+            if pool.listeners:
+                args['listener_id'] = pool.listeners[0].id
         write_func(url, args)
 
     @async_op
@@ -321,9 +341,8 @@ class MemberManager(driver_base.BaseMemberManager):
 
     @staticmethod
     def _url(member, id=None):
-        s = '/v1/loadbalancers/%s/listeners/%s/pools/%s/members' % (
-            member.pool.listener.loadbalancer.id,
-            member.pool.listener.id,
+        s = '/v1/loadbalancers/%s/pools/%s/members' % (
+            member.pool.loadbalancer.id,
             member.pool.id)
         if id:
             s += '/%s' % id
@@ -360,9 +379,8 @@ class HealthMonitorManager(driver_base.BaseHealthMonitorManager):
 
     @staticmethod
     def _url(hm):
-        s = '/v1/loadbalancers/%s/listeners/%s/pools/%s/healthmonitor' % (
-            hm.pool.listener.loadbalancer.id,
-            hm.pool.listener.id,
+        s = '/v1/loadbalancers/%s/pools/%s/healthmonitor' % (
+            hm.pool.loadbalancer.id,
             hm.pool.id)
         return s
 
@@ -381,7 +399,7 @@ class HealthMonitorManager(driver_base.BaseHealthMonitorManager):
         }
         if create:
             args['project_id'] = hm.tenant_id
-        write_func(cls._url(hm), args)
+        write_func(url, args)
 
     @async_op
     def create(self, context, hm):
@@ -394,3 +412,89 @@ class HealthMonitorManager(driver_base.BaseHealthMonitorManager):
     @async_op
     def delete(self, context, hm):
         self.driver.req.delete(self._url(hm))
+
+
+class L7PolicyManager(driver_base.BaseL7PolicyManager):
+
+    @staticmethod
+    def _url(l7p, id=None):
+        s = '/v1/loadbalancers/%s/listeners/%s/l7policies' % (
+            l7p.listener.loadbalancer.id,
+            l7p.listener.id)
+        if id:
+            s += '/%s' % id
+        return s
+
+    @classmethod
+    def _write(cls, write_func, url, l7p, create=True):
+        args = {
+            'name': l7p.name,
+            'description': l7p.description,
+            'action': l7p.action,
+            'redirect_pool_id': l7p.redirect_pool_id,
+            'redirect_url': l7p.redirect_url,
+            'position': l7p.position,
+            'enabled': l7p.admin_state_up
+        }
+        if args['action'] == constants.L7_POLICY_ACTION_REJECT:
+            del args['redirect_url']
+            del args['redirect_pool_id']
+        elif args['action'] == constants.L7_POLICY_ACTION_REDIRECT_TO_POOL:
+            del args['redirect_url']
+        elif args['action'] == constants.L7_POLICY_ACTION_REDIRECT_TO_URL:
+            del args['redirect_pool_id']
+        if create:
+            args['id'] = l7p.id
+        write_func(url, args)
+
+    @async_op
+    def create(self, context, l7p):
+        self._write(self.driver.req.post, self._url(l7p), l7p)
+
+    @async_op
+    def update(self, context, old_l7p, l7p):
+        self._write(self.driver.req.put, self._url(l7p, id=l7p.id),
+                    l7p, create=False)
+
+    @async_op
+    def delete(self, context, l7p):
+        self.driver.req.delete(self._url(l7p, id=l7p.id))
+
+
+class L7RuleManager(driver_base.BaseL7RuleManager):
+
+    @staticmethod
+    def _url(l7r, id=None):
+        s = '/v1/loadbalancers/%s/listeners/%s/l7policies/%s/l7rules' % (
+            l7r.policy.listener.loadbalancer.id,
+            l7r.policy.listener.id,
+            l7r.policy.id)
+        if id:
+            s += '/%s' % id
+        return s
+
+    @classmethod
+    def _write(cls, write_func, url, l7r, create=True):
+        args = {
+            'type': l7r.type,
+            'compare_type': l7r.compare_type,
+            'key': l7r.key,
+            'value': l7r.value,
+            'invert': l7r.invert
+        }
+        if create:
+            args['id'] = l7r.id
+        write_func(url, args)
+
+    @async_op
+    def create(self, context, l7r):
+        self._write(self.driver.req.post, self._url(l7r), l7r)
+
+    @async_op
+    def update(self, context, old_l7r, l7r):
+        self._write(self.driver.req.put, self._url(l7r, id=l7r.id),
+                    l7r, create=False)
+
+    @async_op
+    def delete(self, context, l7r):
+        self.driver.req.delete(self._url(l7r, id=l7r.id))
