@@ -1,6 +1,6 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Neutron LBaaS
-Source: git://github.com/openstack/neutron-lbaas.git
+Source: https://github.com/openstack/neutron-lbaas
 
 Files: *
 Copyright: (c) 2011-2012, OpenStack, LLC.
