@@ -3,7 +3,6 @@
 include /usr/share/openstack-pkg-tools/pkgos.make
 export OSLO_PACKAGE_VERSION=$(VERSION)
 
-UPSTREAM_GIT = git://github.com/openstack/neutron-lbaas.git
 
 PYTHONS:=$(shell pyversions -vr)
 
