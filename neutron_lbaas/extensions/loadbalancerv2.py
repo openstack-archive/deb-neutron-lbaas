@@ -27,6 +27,7 @@ from neutron.api.v2 import resource_helper
 from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services import service_base
+from neutron_lib import constants as n_constants
 from neutron_lib import exceptions as nexception
 
 from neutron_lbaas._i18n import _
@@ -80,7 +81,7 @@ class AttributeIDImmutable(nexception.NeutronException):
     message = _("Cannot change %(attribute)s if one already exists")
 
 
-class StateInvalid(nexception.NeutronException):
+class StateInvalid(nexception.Conflict):
     message = _("Invalid state %(state)s of loadbalancer resource %(id)s")
 
 
@@ -164,14 +165,14 @@ RESOURCE_ATTRIBUTE_MAP = {
                           'validate': {'type:uuid': None},
                           'is_visible': True},
         'vip_address': {'allow_post': True, 'allow_put': False,
-                        'default': attr.ATTR_NOT_SPECIFIED,
+                        'default': n_constants.ATTR_NOT_SPECIFIED,
                         'validate': {'type:ip_address_or_none': None},
                         'is_visible': True},
         'vip_port_id': {'allow_post': False, 'allow_put': False,
                         'is_visible': True},
         'provider': {'allow_post': True, 'allow_put': False,
-                     'validate': {'type:string': None},
-                     'is_visible': True, 'default': attr.ATTR_NOT_SPECIFIED},
+                     'validate': {'type:string': None}, 'is_visible': True,
+                     'default': n_constants.ATTR_NOT_SPECIFIED},
         'listeners': {'allow_post': False, 'allow_put': False,
                       'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
@@ -185,7 +186,7 @@ RESOURCE_ATTRIBUTE_MAP = {
         'flavor_id': {'allow_post': True, 'allow_put': False,
                       'is_visible': True,
                       'validate': {'type:string': attr.NAME_MAX_LEN},
-                      'default': attr.ATTR_NOT_SPECIFIED}
+                      'default': n_constants.ATTR_NOT_SPECIFIED}
     },
     'listeners': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -232,7 +233,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                                   lb_const.LISTENER_SUPPORTED_PROTOCOLS},
                      'is_visible': True},
         'protocol_port': {'allow_post': True, 'allow_put': False,
-                          'validate': {'type:range': [0, 65535]},
+                          'validate': {'type:range': [1, 65535]},
                           'convert_to': attr.convert_to_int,
                           'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
@@ -370,7 +371,7 @@ SUB_RESOURCE_ATTRIBUTE_MAP = {
                         'validate': {'type:ip_address': None},
                         'is_visible': True},
             'protocol_port': {'allow_post': True, 'allow_put': False,
-                              'validate': {'type:range': [0, 65535]},
+                              'validate': {'type:range': [1, 65535]},
                               'convert_to': attr.convert_to_int,
                               'is_visible': True},
             'weight': {'allow_post': True, 'allow_put': True,

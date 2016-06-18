@@ -27,6 +27,7 @@ from neutron.services import service_base
 from neutron_lib import exceptions as n_exc
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import encodeutils
 from oslo_utils import excutils
 
 from neutron_lbaas._i18n import _LI, _LE
@@ -117,9 +118,8 @@ class LoadBalancerPlugin(ldb.LoadBalancerPluginDb,
                               if pool['provider'] not in provider_names])
         # resources are left without provider - stop the service
         if lost_providers:
-            LOG.exception(_LE("Delete associated loadbalancer pools before "
-                              "removing providers %s"),
-                          list(lost_providers))
+            LOG.error(_LE("Delete associated loadbalancer pools before "
+                          "removing providers %s"), list(lost_providers))
             raise SystemExit(1)
 
     def _get_driver_for_provider(self, provider):
@@ -649,8 +649,9 @@ class LoadBalancerPluginv2(loadbalancerv2.LoadBalancerPluginBaseV2):
                         container_id=container_ref)
                 else:
                     # Could be a keystone configuration error...
+                    err_msg = encodeutils.exception_to_unicode(e)
                     raise loadbalancerv2.CertManagerError(
-                        ref=container_ref, reason=e.message
+                        ref=container_ref, reason=err_msg
                     )
 
             try:

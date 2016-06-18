@@ -12,12 +12,11 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import base64
-import httplib
-
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
+from oslo_serialization import base64
 from oslo_serialization import jsonutils
+from six.moves import http_client
 
 from neutron_lbaas._i18n import _LE, _LW
 from neutron_lbaas.drivers.radware import exceptions as r_exc
@@ -49,7 +48,7 @@ class vDirectRESTClient(object):
         self.base_uri = base_uri
         self.timeout = timeout
         if user and password:
-            self.auth = base64.encodestring('%s:%s' % (user, password))
+            self.auth = base64.encode_as_text('%s:%s' % (user, password))
             self.auth = self.auth.replace('\n', '')
         else:
             raise r_exc.AuthenticationMissing()
@@ -114,14 +113,14 @@ class vDirectRESTClient(object):
             headers['Authorization'] = 'Basic %s' % self.auth
         conn = None
         if self.ssl:
-            conn = httplib.HTTPSConnection(
+            conn = http_client.HTTPSConnection(
                 self.server, self.port, timeout=self.timeout)
             if conn is None:
                 LOG.error(_LE('vdirectRESTClient: Could not establish HTTPS '
                           'connection'))
                 return 0, None, None, None
         else:
-            conn = httplib.HTTPConnection(
+            conn = http_client.HTTPConnection(
                 self.server, self.port, timeout=self.timeout)
             if conn is None:
                 LOG.error(_LE('vdirectRESTClient: Could not establish HTTP '

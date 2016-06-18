@@ -12,9 +12,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import base64
 import copy
-import httplib
 import netaddr
 import threading
 import time
@@ -23,14 +21,16 @@ import time
 import eventlet
 eventlet.monkey_patch(thread=True)
 
-from neutron.api.v2 import attributes
 from neutron import context as ncontext
 from neutron.plugins.common import constants
+from neutron_lib import constants as n_constants
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
 from oslo_log import log as logging
+from oslo_serialization import base64
 from oslo_serialization import jsonutils
 from oslo_utils import excutils
+from six.moves import http_client
 from six.moves import queue as Queue
 
 from neutron_lbaas._i18n import _, _LE, _LI, _LW
@@ -633,7 +633,7 @@ class LoadBalancerDriver(abstract_driver.LoadBalancerAbstractDriver):
                 'tenant_id': tenant_id,
                 'name': port_name,
                 'network_id': network_id,
-                'mac_address': attributes.ATTR_NOT_SPECIFIED,
+                'mac_address': n_constants.ATTR_NOT_SPECIFIED,
                 'admin_state_up': False,
                 'device_id': '',
                 'device_owner': 'neutron:' + constants.LOADBALANCER,
@@ -672,7 +672,7 @@ class vDirectRESTClient(object):
         self.base_uri = base_uri
         self.timeout = timeout
         if user and password:
-            self.auth = base64.encodestring('%s:%s' % (user, password))
+            self.auth = base64.encode_as_text('%s:%s' % (user, password))
             self.auth = self.auth.replace('\n', '')
         else:
             raise r_exc.AuthenticationMissing()
@@ -737,14 +737,14 @@ class vDirectRESTClient(object):
             headers['Authorization'] = 'Basic %s' % self.auth
         conn = None
         if self.ssl:
-            conn = httplib.HTTPSConnection(
+            conn = http_client.HTTPSConnection(
                 self.server, self.port, timeout=self.timeout)
             if conn is None:
                 LOG.error(_LE('vdirectRESTClient: Could not establish HTTPS '
                           'connection'))
                 return 0, None, None, None
         else:
-            conn = httplib.HTTPConnection(
+            conn = http_client.HTTPConnection(
                 self.server, self.port, timeout=self.timeout)
             if conn is None:
                 LOG.error(_LE('vdirectRESTClient: Could not establish HTTP '

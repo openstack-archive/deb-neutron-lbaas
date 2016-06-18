@@ -1,5 +1,3 @@
-# Copyright 2016 Red Hat, Inc.
-#
 #    Licensed under the Apache License, Version 2.0 (the "License"); you may
 #    not use this file except in compliance with the License. You may obtain
 #    a copy of the License at
@@ -12,15 +10,20 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
+import eventlet
+eventlet.monkey_patch()
 
-import six
+import logging as sys_logging
 
+from oslo_reports import guru_meditation_report as gmr
 
-if six.PY3:
-    @contextlib.contextmanager
-    def nested(*contexts):
-        with contextlib.ExitStack() as stack:
-            yield [stack.enter_context(c) for c in contexts]
-else:
-    nested = contextlib.nested
+from neutron_lbaas import version
+
+# During the call to gmr.TextGuruMeditation.setup_autorun(), Guru Meditation
+# Report tries to start logging. Set a handler here to accommodate this.
+logger = sys_logging.getLogger(None)
+if not logger.handlers:
+    logger.addHandler(sys_logging.StreamHandler())
+
+_version_string = version.version_info.release_string()
+gmr.TextGuruMeditation.setup_autorun(version=_version_string)

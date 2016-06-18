@@ -13,7 +13,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
 import mock
 
 from neutron import context
@@ -22,6 +21,7 @@ from neutron.plugins.common import constants
 from neutron import manager
 from neutron_lbaas.db.loadbalancer import loadbalancer_db as lb_db
 from neutron_lbaas.services.loadbalancer.drivers.vmware import db
+from neutron_lbaas.tests import nested
 from neutron_lbaas.tests.unit.db.loadbalancer import test_db_loadbalancer
 
 
@@ -65,7 +65,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
     def test_create_pool_successful(self):
         pool = {'id': POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'add_nsxv_edge_pool_mapping'),
             mock.patch.object(self.edge_driver, 'pool_successful')
         ) as (mock_add_pool, mock_pool_successful):
@@ -79,7 +79,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
     def test_delete_pool_successful(self):
         pool = {'id': POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(self.service_plugin, '_delete_db_pool'),
             mock.patch.object(db, 'delete_nsxv_edge_pool_mapping')
         ) as (mock_del_db_pool, mock_del_mapping):
@@ -139,7 +139,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
         mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
                               'update_pool')
@@ -160,7 +160,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
             'health_monitors_status': [], 'provider': 'vmwareedge'}
         mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(self.service_plugin, 'get_pool',
                               return_value={}),
@@ -175,7 +175,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_create_vip_successful(self):
         vip = {'pool_id': POOL_ID}
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'add_nsxv_edge_vip_mapping'),
             mock.patch.object(self.edge_driver, 'vip_successful')
         ) as (mock_add_vip_mapping, mock_vip_successful):
@@ -191,7 +191,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_delete_vip_successful(self):
         vip = {'pool_id': POOL_ID, 'id': VIP_ID}
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'delete_nsxv_edge_vip_mapping'),
             mock.patch.object(self.service_plugin, '_delete_db_vip')
         ) as (mock_del_vip_mapping, mock_del_vip):
@@ -227,7 +227,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
             'session_persistence': {'type': 'SOURCE_IP'}}
         mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
                               'create_vip')
@@ -240,15 +240,15 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
     def test_update_vip(self):
         vip_from = {
             'status': 'ACTIVE', 'protocol': 'HTTP', 'description': '',
-            'address': '10.0.0.8', 'protocol_port': 555L,
+            'address': '10.0.0.8', 'protocol_port': 555,
             'port_id': VIP_PORT_ID, 'id': VIP_ID, 'status_description': None,
             'name': 'testvip1', 'admin_state_up': True,
             'subnet_id': SUBNET_ID, 'tenant_id': TENANT_ID,
-            'connection_limit': -1L, 'pool_id': POOL_ID,
+            'connection_limit': -1, 'pool_id': POOL_ID,
             'session_persistence': {'type': 'SOURCE_IP'}}
         vip_to = {
             'status': 'PENDING_UPDATE', 'protocol': 'HTTP',
-            'description': '', 'address': '10.0.0.8', 'protocol_port': 555L,
+            'description': '', 'address': '10.0.0.8', 'protocol_port': 555,
             'port_id': VIP_PORT_ID, 'id': VIP_ID, 'status_description': None,
             'name': 'testvip1', 'admin_state_up': True,
             'subnet_id': SUBNET_ID, 'tenant_id': TENANT_ID,
@@ -258,7 +258,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
         vip_mapping = {'edge_id': EDGE_ID, 'edge_vse_id': EDGE_VSE_ID,
                        'edge_app_profile_id': APP_PROFILE_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(db, 'get_nsxv_edge_vip_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
@@ -274,16 +274,16 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
     def test_delete_vip(self):
         lbaas_vip = {
             'status': 'PENDING_DELETE', 'protocol': 'HTTP',
-            'description': '', 'address': '10.0.0.11', 'protocol_port': 555L,
+            'description': '', 'address': '10.0.0.11', 'protocol_port': 555,
             'port_id': VIP_PORT_ID, 'id': VIP_ID, 'status_description': None,
             'name': 'testvip', 'admin_state_up': True, 'subnet_id': SUBNET_ID,
-            'tenant_id': TENANT_ID, 'connection_limit': -1L,
+            'tenant_id': TENANT_ID, 'connection_limit': -1,
             'pool_id': POOL_ID, 'session_persistence': None}
         mapping = {'edge_id': EDGE_ID, 'edge_vse_id': EDGE_VSE_ID,
                    'edge_app_profile_id': APP_PROFILE_ID,
                    'edge_fw_rule_id': EDGE_FW_RULE_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_vip_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
                               'delete_vip')
@@ -317,7 +317,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
             'pool_id': POOL_ID}
         mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
                               'create_member')
@@ -341,7 +341,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
             'pool_id': POOL_ID}
         mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
                               'update_member')
@@ -361,7 +361,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
             'pool_id': POOL_ID}
         mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
                               'delete_member')
@@ -374,7 +374,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_create_pool_health_monitor_successful(self):
         hmon = {'id': HEALTHMON_ID}
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'add_nsxv_edge_monitor_mapping'),
             mock.patch.object(self.edge_driver,
                               'pool_health_monitor_successful')
@@ -389,7 +389,7 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
     def test_delete_pool_health_monitor_successful(self):
         hmon = {'id': HEALTHMON_ID, 'pool_id': POOL_ID}
         hmon_mapping = {'edge_id': EDGE_ID}
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'delete_nsxv_edge_monitor_mapping'),
             mock.patch.object(self.service_plugin,
                               '_delete_db_pool_health_monitor')
@@ -424,14 +424,14 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_create_pool_health_monitor(self):
         hmon = {
-            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5L,
-            'max_retries': 5L, 'timeout': 5L, 'pools': [
+            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5,
+            'max_retries': 5, 'timeout': 5, 'pools': [
                 {'status': 'PENDING_CREATE', 'status_description': None,
                  'pool_id': POOL_ID}],
             'type': 'PING', 'id': HEALTHMON_ID}
         pool_mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(db, 'get_nsxv_edge_monitor_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
@@ -448,21 +448,21 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_update_pool_health_monitor(self):
         from_hmon = {
-            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5L,
-            'max_retries': 5L, 'timeout': 5L, 'pools': [
+            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5,
+            'max_retries': 5, 'timeout': 5, 'pools': [
                 {'status': 'PENDING_UPDATE', 'status_description': None,
                  'pool_id': POOL_ID}],
             'type': 'PING', 'id': HEALTHMON_ID}
         to_hmon = {
-            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5L,
-            'max_retries': 10L, 'timeout': 5L, 'pools': [
+            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5,
+            'max_retries': 10, 'timeout': 5, 'pools': [
                 {'status': 'ACTIVE', 'status_description': None,
                  'pool_id': POOL_ID}],
             'type': 'PING', 'id': HEALTHMON_ID}
         pool_mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
         mon_mapping = {'edge_id': EDGE_ID, 'edge_monitor_id': EDGE_MON_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(db, 'get_nsxv_edge_monitor_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
@@ -479,15 +479,15 @@ class TestEdgeLoadBalancerPlugin(TestLoadBalancerPluginBase):
 
     def test_delete_pool_health_monitor(self):
         hmon = {
-            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5L,
-            'max_retries': 5L, 'timeout': 5L, 'pools': [
+            'admin_state_up': True, 'tenant_id': TENANT_ID, 'delay': 5,
+            'max_retries': 5, 'timeout': 5, 'pools': [
                 {'status': 'PENDING_DELETE', 'status_description': None,
                  'pool_id': POOL_ID}],
             'type': 'PING', 'id': HEALTHMON_ID}
         pool_mapping = {'edge_id': EDGE_ID, 'edge_pool_id': EDGE_POOL_ID}
         mon_mapping = {'edge_id': EDGE_ID, 'edge_monitor_id': EDGE_MON_ID}
 
-        with contextlib.nested(
+        with nested(
             mock.patch.object(db, 'get_nsxv_edge_pool_mapping'),
             mock.patch.object(db, 'get_nsxv_edge_monitor_mapping'),
             mock.patch.object(self.service_plugin._core_plugin.nsx_v,
