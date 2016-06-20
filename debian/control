@@ -151,4 +151,4 @@ Description: OpenStack virtual network service - lbass agent v2
  vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
  network capabilities, including QoS, ACLs, and network monitoring.
  .
- This package provides the LBaaS agent.
+ This package provides the LBaaS v2 agent.
