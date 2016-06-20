@@ -1,3 +1,1 @@
 usr/etc/neutron/rootwrap.d/lbaas-haproxy.filters	/etc/neutron/rootwrap.d
-usr/bin/neutron-lbaasv2-agent
-usr/bin/neutron-lbaas-agent

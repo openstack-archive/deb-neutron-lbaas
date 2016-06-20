@@ -90,13 +90,29 @@ Depends: alembic (>= 0.8.4),
          ${python:Depends},
 Recommends: iputils-arping
 Provides: ${python:Provides}
-Description: OpenStack virtual network service - Python library
+Description: Loadbalancer-as-a-Service driver for OpenStack Neutron - Python 2.7 library
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
  vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
  network capabilities, including QoS, ACLs, and network monitoring.
  .
- This package provides the Python library.
+ This package provides the Python 2.7 library for the Neutron load balancer.
+
+Package: neutron-lbaas-common
+Architecture: all
+Depends: haproxy,
+         neutron-common,
+         python-neutron-lbaas (= ${source:Version}),
+         ${misc:Depends},
+         ${python:Depends},
+         ${shlibs:Depends},
+Description: Loadbalancer-as-a-Service driver for OpenStack Neutron - common files
+ Neutron provides an API to dynamically request and configure virtual networks.
+ These networks connect "interfaces" from other OpenStack services (such as
+ vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
+ network capabilities, including QoS, ACLs, and network monitoring.
+ .
+ This package contains common files for the Neutron load balancer.
 
 Package: neutron-lbaas-agent
 Architecture: all
@@ -104,12 +120,33 @@ Depends: adduser,
          debconf,
          lsb-base,
          neutron-common,
+         neutron-lbaas-common (= ${source:Version}),
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
 Breaks: neutron-common (<< 2015.1~)
 Replaces: neutron-common (<< 2015.1~)
 Description: OpenStack virtual network service - lbass agent
+ Neutron provides an API to dynamically request and configure virtual networks.
+ These networks connect "interfaces" from other OpenStack services (such as
+ vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
+ network capabilities, including QoS, ACLs, and network monitoring.
+ .
+ This package provides the LBaaS agent.
+
+Package: neutron-lbaasv2-agent
+Architecture: all
+Depends: adduser,
+         debconf,
+         lsb-base,
+         neutron-common,
+         neutron-lbaas-common (= ${source:Version}),
+         ${misc:Depends},
+         ${python:Depends},
+         ${shlibs:Depends}
+Breaks: neutron-common (<< 2015.1~)
+Replaces: neutron-common (<< 2015.1~)
+Description: OpenStack virtual network service - lbass agent v2
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
  vNICs from Nova VMs). The Neutron API supports extensions to provide advanced

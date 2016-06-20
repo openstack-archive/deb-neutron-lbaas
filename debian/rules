@@ -1,13 +1,14 @@
 #!/usr/bin/make -f
 
 include /usr/share/openstack-pkg-tools/pkgos.make
-export OSLO_PACKAGE_VERSION=$(VERSION)
-
 
 PYTHONS:=$(shell pyversions -vr)
 
 %:
 	dh $@ --buildsystem=python_distutils --with python2,systemd
+
+override_dh_auto_install:
+	echo "Do nothing..."
 
 override_dh_install:
 	rm -rf $(CURDIR)/debian/tmp

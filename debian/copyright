@@ -3,12 +3,24 @@ Upstream-Name: Neutron LBaaS
 Source: https://github.com/openstack/neutron-lbaas
 
 Files: *
-Copyright: (c) 2011-2012, OpenStack, LLC.
-           (c) 2013-2014, The OpenStack Foundation
+Copyright: (c) 2010-2016, OpenStack Foundation,
+           (c) 2010, United States Government
+           (c) 2013, IBM Corp,
+           (c) 2013-2014, Embrane, Inc
+           (c) 2013-2014, Hewlett-Packard Development Company, L.P
+           (c) 2013, Mirantis, Inc
+           (c) 2013, New Dream Network, LLC (DreamHost)
+           (c) 2013, Radware LTD,
+           (c) 2014, A10 Networks,
+           (c) 2014, Citrix Systems, Inc,
+           (c) 2014, Doug Wiegley (dougwig)
+           (c) 2014, VA Linux Systems Japan K.K
+           (c) 2014, YAMAMOTO Takashi <yamamoto@valinux.co.jp>
 License: Apache-2.0
 
 Files: debian/*
-Copyright: 2012-2016, Thomas Goirand <zigo@debian.org>
+Copyright: (c) 2012-2016, Thomas Goirand <zigo@debian.org>
+           (c) 2015, Canonical Ltd
 License: Apache-2.0
 
 License: Apache-2.0
