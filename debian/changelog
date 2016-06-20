@@ -8,11 +8,13 @@ neutron-lbaas (1:9.0.0~b1-1) experimental; urgency=medium
   * New upstream release.
   * Fixed (build-)depends for this release.
   * Align the package with the one from Ubuntu, so that it is compatible with
-    upstream puppet-openstack.
+    upstream puppet-openstack:
+    - Moved /usr/bin/* to python-lbaas-agent, so that we can later on provide a
+      Python 3 implementation.
+    - Using lbaas-agent-common for config files only and 2 packages for the
+      daemons.
+    - Adds some Breaks+Replaces to allow upgrade to this new version.
   * Fixed debian/copyright (missing holders).
-  * Moved /usr/bin/* to python-lbaas-agent, so that we can later on provide a
-    Python 3 implementation. Now using lbaas-agent-common for config files only
-    and 2 packages for the daemons.
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 18 Jun 2016 15:45:22 +0200
 

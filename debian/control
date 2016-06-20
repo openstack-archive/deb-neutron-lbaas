@@ -61,6 +61,8 @@ Vcs-Git: https://anonscm.debian.org/git/openstack/neutron-lbaas.git
 Package: python-neutron-lbaas
 Architecture: all
 Section: python
+Breaks: neutron-lbaas-agent (<< 1:9.0.0~b1),
+Replaces: neutron-lbaas-agent (<< 1:9.0.0~b1),
 Depends: alembic (>= 0.8.4),
          python-barbicanclient (>= 4.0.0),
          python-eventlet (>= 0.18.4),
@@ -99,6 +101,8 @@ Description: Loadbalancer-as-a-Service driver for OpenStack Neutron - Python 2.7
 
 Package: neutron-lbaas-common
 Architecture: all
+Breaks: neutron-lbaas-agent (<< 1:9.0.0~b1),
+Replaces: neutron-lbaas-agent (<< 1:9.0.0~b1),
 Depends: haproxy,
          neutron-common,
          python-neutron-lbaas (= ${source:Version}),
