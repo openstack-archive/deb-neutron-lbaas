@@ -15,6 +15,7 @@ neutron-lbaas (1:9.0.0~b1-1) experimental; urgency=medium
       daemons.
     - Adds some Breaks+Replaces to allow upgrade to this new version.
   * Fixed debian/copyright (missing holders).
+  * Fixed wrong generation of /etc/neutron/{neutron,services}_lbaas.conf
 
  -- Thomas Goirand <zigo@debian.org>  Sat, 18 Jun 2016 15:45:22 +0200
 
