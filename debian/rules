@@ -24,13 +24,13 @@ override_dh_install:
 
 	# neutron_lbaas.conf
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
-		--output-file $(CURDIR)/debian/neutron-lbaas-agent/etc/neutron/neutron_lbaas.conf \
+		--output-file $(CURDIR)/debian/neutron-lbaas-common/etc/neutron/neutron_lbaas.conf \
 		--wrap-width 140 \
 		--namespace neutron.lbaas
 
 	# services_lbaas.conf
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
-		--output-file $(CURDIR)/debian/neutron-lbaas-agent/etc/neutron/services_lbaas.conf \
+		--output-file $(CURDIR)/debian/neutron-lbaas-common/etc/neutron/services_lbaas.conf \
 		--wrap-width 140 \
 		--namespace neutron.lbaas.service
 
