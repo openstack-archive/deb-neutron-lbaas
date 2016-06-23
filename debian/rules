@@ -21,6 +21,7 @@ override_dh_install:
 		--wrap-width 140 \
 		--namespace neutron.lbaas.agent \
 		--namespace oslo.log
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-lbaas-common/etc/neutron/lbaas_agent.ini DEFAULT interface_driver openvswitch
 
 	# neutron_lbaas.conf
 	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
@@ -33,6 +34,7 @@ override_dh_install:
 		--output-file $(CURDIR)/debian/neutron-lbaas-common/etc/neutron/services_lbaas.conf \
 		--wrap-width 140 \
 		--namespace neutron.lbaas.service
+	pkgos-fix-config-default $(CURDIR)/debian/neutron-lbaas-common/etc/neutron/services_lbaas.conf service_providers service_provider LOADBALANCERV2:Haproxy:neutron_lbaas.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default
 
 	dh_install -O--buildsystem=python_distutils --fail-missing
 
