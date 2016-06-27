@@ -101,6 +101,7 @@ Depends: adduser,
          debconf,
          lsb-base,
          neutron-common,
+         python-neutron-lbaas (= ${binary:Version}),
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends}
