@@ -109,7 +109,7 @@ Depends: haproxy,
          ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends},
-Description: Loadbalancer-as-a-Service driver for OpenStack Neutron - common files
+Description: Loadbalancer-as-a-Service driver for OpenStack networking - common files
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
  vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
@@ -129,7 +129,7 @@ Depends: adduser,
          ${shlibs:Depends}
 Breaks: neutron-common (<< 2015.1~)
 Replaces: neutron-common (<< 2015.1~)
-Description: OpenStack virtual network service - lbass agent
+Description: Loadbalancer-as-a-Service driver for OpenStack networking - Agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
  vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
@@ -149,7 +149,7 @@ Depends: adduser,
          ${shlibs:Depends}
 Breaks: neutron-common (<< 2015.1~)
 Replaces: neutron-common (<< 2015.1~)
-Description: OpenStack virtual network service - lbass agent v2
+Description: Loadbalancer-as-a-Service driver for OpenStack networking - Agent v2
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
  vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
