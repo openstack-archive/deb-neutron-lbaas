@@ -1,5 +1,7 @@
 neutron-lbaas (1:9.0.0~b2-1) experimental; urgency=medium
 
+  * New upstream release.
+  * Fixed (build-)depends for this release.
   * Fixed short descriptions.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 29 Jun 2016 20:15:54 +0000
