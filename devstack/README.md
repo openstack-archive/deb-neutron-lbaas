@@ -5,10 +5,14 @@ the LBaaS service by editing the [[local|localrc]] section of your
 local.conf file.
 
 Octavia is the LBaaS V2 reference service provider and is used in the
-examples below.  Enabling another service provider, such as the Haproxy,
-is also supported.  This can be done by enabling the driver plugin, if
+examples below. Enabling another service provider, such as the agent
+Haproxy driver, can be done by enabling its driver plugin, if
 applicable, and setting the appropriate service provider value for
-NEUTRON_LBAAS_SERVICE_PROVIDERV2.  In addition, you can enable multiple
+NEUTRON_LBAAS_SERVICE_PROVIDERV2, like the following:
+
+    NEUTRON_LBAAS_SERVICE_PROVIDERV2="LOADBALANCERV2:Haproxy:neutron_lbaas.drivers.haproxy.plugin_driver.HaproxyOnHostPluginDriver:default"
+
+In addition, you can enable multiple
 service providers by enabling the applicable driver plugins and
 space-delimiting the service provider values in
 NEUTRON_LBAAS_SERVICE_PROVIDERV2.
@@ -58,6 +62,27 @@ For example
     # For LBaaS V2
     ENABLED_SERVICES+=,q-lbaasv2
     ENABLED_SERVICES+=,octavia,o-cw,o-hk,o-hm,o-api
+
+
+3) Enable the dashboard of LBaaS V2
+
+If using LBaaS V2 and you want to add horizon support, add lines in the form:
+
+    enable_plugin neutron-lbaas-dashboard <neutron-lbaas-dashboard GITURL> [GITREF]
+
+where
+
+    <neutron-lbaas-dashboard GITURL> is the URL of a neutron-lbaas-dashboard repository
+    [GITREF] is an optional git ref (branch/ref/tag).  The default is
+             master.
+
+For example
+
+    enable_plugin neutron-lbaas-dashboard https://git.openstack.org/openstack/neutron-lbaas-dashboard stable/liberty
+
+Once you enable the neutron-lbaas-dashboard plugin in your local.conf, ensure ``horizon`` and
+``q-lbaasv2`` services are enabled. If both of them are enabled,
+neutron-lbaas-dashboard will be enabled automatically
 
 For more information, see the "Externally Hosted Plugins" section of
 http://docs.openstack.org/developer/devstack/plugins.html.

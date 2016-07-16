@@ -7,14 +7,15 @@ function neutron_lbaas_install {
 
 function neutron_agent_lbaas_install_agent_packages {
     if is_ubuntu; then
-        if [[ ${OFFLINE} == False ]]; then
-            BACKPORT="deb http://archive.ubuntu.com/ubuntu trusty-backports main restricted universe multiverse"
+        if [[ ${OFFLINE} == False && ${os_CODENAME} =~ (trusty|precise) ]]; then
+            # Check for specific version of Ubuntu that requires backports repository for haproxy 1.5.14 or greater
+            BACKPORT="deb http://archive.ubuntu.com/ubuntu ${os_CODENAME}-backports main restricted universe multiverse"
             BACKPORT_EXISTS=$(grep ^ /etc/apt/sources.list /etc/apt/sources.list.d/* | grep "${BACKPORT}") || true
             if [[ -z "${BACKPORT_EXISTS}" ]]; then
                 sudo add-apt-repository "${BACKPORT}" -y
             fi
             sudo apt-get update
-            sudo apt-get install haproxy -t trusty-backports
+            sudo apt-get install haproxy -t ${os_CODENAME}-backports
         fi
     fi
     if is_fedora || is_suse; then
@@ -26,9 +27,6 @@ function neutron_lbaas_configure_common {
     if is_service_enabled $LBAAS_V1 && is_service_enabled $LBAAS_V2; then
         die $LINENO "Do not enable both Version 1 and Version 2 of LBaaS."
     fi
-
-    # Uses oslo config generator to generate LBaaS sample configuration files
-    (cd $NEUTRON_LBAAS_DIR && exec ./tools/generate_config_file_samples.sh)
 
     cp $NEUTRON_LBAAS_DIR/etc/neutron_lbaas.conf.sample $NEUTRON_LBAAS_CONF
 
@@ -49,14 +47,14 @@ function neutron_lbaas_configure_common {
     fi
 
     # Ensure config is set up properly for authentication neutron-lbaas
-    iniset $NEUTRON_LBAAS_CONF service_auth auth_uri $AUTH_URI
+    iniset $NEUTRON_LBAAS_CONF service_auth auth_url $AUTH_URL
     iniset $NEUTRON_LBAAS_CONF service_auth admin_tenant_name $ADMIN_TENANT_NAME
     iniset $NEUTRON_LBAAS_CONF service_auth admin_user $ADMIN_USER
     iniset $NEUTRON_LBAAS_CONF service_auth admin_password $ADMIN_PASSWORD
     iniset $NEUTRON_LBAAS_CONF service_auth auth_version $AUTH_VERSION
 
     # Ensure config is set up properly for authentication neutron
-    iniset $NEUTRON_CONF service_auth auth_uri $AUTH_URI
+    iniset $NEUTRON_CONF service_auth auth_url $AUTH_URL
     iniset $NEUTRON_CONF service_auth admin_tenant_name $ADMIN_TENANT_NAME
     iniset $NEUTRON_CONF service_auth admin_user $ADMIN_USER
     iniset $NEUTRON_CONF service_auth admin_password $ADMIN_PASSWORD
@@ -64,23 +62,31 @@ function neutron_lbaas_configure_common {
 
     _neutron_deploy_rootwrap_filters $NEUTRON_LBAAS_DIR
 
-    $NEUTRON_BIN_DIR/neutron-db-manage --service lbaas --config-file $NEUTRON_CONF --config-file /$Q_PLUGIN_CONF_FILE upgrade head
+    $NEUTRON_BIN_DIR/neutron-db-manage --subproject neutron-lbaas --config-file $NEUTRON_CONF --config-file /$Q_PLUGIN_CONF_FILE upgrade head
 }
 
 function neutron_lbaas_configure_agent {
-    mkdir -p $LBAAS_AGENT_CONF_PATH
-    cp $NEUTRON_LBAAS_DIR/etc/lbaas_agent.ini.sample $LBAAS_AGENT_CONF_FILENAME
+    if [ -z "$1" ]; then
+        mkdir -p $LBAAS_AGENT_CONF_PATH
+    fi
+    conf=${1:-$LBAAS_AGENT_CONF_FILENAME}
+    cp $NEUTRON_LBAAS_DIR/etc/lbaas_agent.ini.sample $conf
 
     # ovs_use_veth needs to be set before the plugin configuration
     # occurs to allow plugins to override the setting.
-    iniset $LBAAS_AGENT_CONF_FILENAME DEFAULT ovs_use_veth $Q_OVS_USE_VETH
+    iniset $conf DEFAULT ovs_use_veth $Q_OVS_USE_VETH
 
-    neutron_plugin_setup_interface_driver $LBAAS_AGENT_CONF_FILENAME
+    neutron_plugin_setup_interface_driver $conf
 
     if is_fedora; then
-        iniset $LBAAS_AGENT_CONF_FILENAME DEFAULT user_group "nobody"
-        iniset $LBAAS_AGENT_CONF_FILENAME haproxy user_group "nobody"
+        iniset $conf DEFAULT user_group "nobody"
+        iniset $conf haproxy user_group "nobody"
     fi
+}
+
+function neutron_lbaas_generate_config_files {
+    # Uses oslo config generator to generate LBaaS sample configuration files
+    (cd $NEUTRON_LBAAS_DIR && exec ./tools/generate_config_file_samples.sh)
 }
 
 function neutron_lbaas_start {
@@ -128,12 +134,12 @@ if is_service_enabled $LBAAS_ANY; then
     if [[ "$1" == "stack" && "$2" == "install" ]]; then
         # Perform installation of service source
         echo_summary "Installing neutron-lbaas"
-        neutron_agent_lbaas_install_agent_packages
         neutron_lbaas_install
 
     elif [[ "$1" == "stack" && "$2" == "post-config" ]]; then
         # Configure after the other layer 1 and 2 services have been configured
         echo_summary "Configuring neutron-lbaas"
+        neutron_lbaas_generate_config_files
         neutron_lbaas_configure_common
         neutron_lbaas_configure_agent
 

@@ -25,6 +25,8 @@ from neutron.api.v2 import resource_helper
 from neutron import manager
 from neutron.plugins.common import constants
 from neutron.services import service_base
+from neutron_lib.api import converters
+from neutron_lib.api import validators
 from neutron_lib import constants as n_constants
 from neutron_lib import exceptions as nexception
 
@@ -101,7 +103,7 @@ class MemberExists(nexception.NeutronException):
                 "already present in pool %(pool)s")
 
 
-attr.validators['type:connection_limit'] = (
+validators.validators['type:connection_limit'] = (
     loadbalancerv2._validate_connection_limit)
 
 
@@ -134,7 +136,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'is_visible': True},
         'protocol_port': {'allow_post': True, 'allow_put': False,
                           'validate': {'type:range': [1, 65535]},
-                          'convert_to': attr.convert_to_int,
+                          'convert_to': converters.convert_to_int,
                           'is_visible': True},
         'protocol': {'allow_post': True, 'allow_put': False,
                      'validate': {'type:values': ['TCP', 'HTTP', 'HTTPS']},
@@ -143,7 +145,8 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'validate': {'type:uuid': None},
                     'is_visible': True},
         'session_persistence': {'allow_post': True, 'allow_put': True,
-                                'convert_to': attr.convert_none_to_empty_dict,
+                                'convert_to':
+                                    converters.convert_none_to_empty_dict,
                                 'default': {},
                                 'validate': {
                                     'type:dict_or_empty': {
@@ -158,11 +161,11 @@ RESOURCE_ATTRIBUTE_MAP = {
                              'validate': {'type:connection_limit':
                                           lb_const.MIN_CONNECT_VALUE},
                              'default': lb_const.MIN_CONNECT_VALUE,
-                             'convert_to': attr.convert_to_int,
+                             'convert_to': converters.convert_to_int,
                              'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
@@ -207,13 +210,13 @@ RESOURCE_ATTRIBUTE_MAP = {
         'health_monitors': {'allow_post': True, 'allow_put': True,
                             'default': None,
                             'validate': {'type:uuid_list': None},
-                            'convert_to': attr.convert_to_list,
+                            'convert_to': converters.convert_to_list,
                             'is_visible': True},
         'health_monitors_status': {'allow_post': False, 'allow_put': False,
                                    'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
@@ -237,16 +240,16 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'is_visible': True},
         'protocol_port': {'allow_post': True, 'allow_put': False,
                           'validate': {'type:range': [1, 65535]},
-                          'convert_to': attr.convert_to_int,
+                          'convert_to': converters.convert_to_int,
                           'is_visible': True},
         'weight': {'allow_post': True, 'allow_put': True,
                    'default': 1,
                    'validate': {'type:range': [0, 256]},
-                   'convert_to': attr.convert_to_int,
+                   'convert_to': converters.convert_to_int,
                    'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
@@ -267,15 +270,15 @@ RESOURCE_ATTRIBUTE_MAP = {
                  'is_visible': True},
         'delay': {'allow_post': True, 'allow_put': True,
                   'validate': {'type:non_negative': None},
-                  'convert_to': attr.convert_to_int,
+                  'convert_to': converters.convert_to_int,
                   'is_visible': True},
         'timeout': {'allow_post': True, 'allow_put': True,
                     'validate': {'type:non_negative': None},
-                    'convert_to': attr.convert_to_int,
+                    'convert_to': converters.convert_to_int,
                     'is_visible': True},
         'max_retries': {'allow_post': True, 'allow_put': True,
                         'validate': {'type:range': [1, 10]},
-                        'convert_to': attr.convert_to_int,
+                        'convert_to': converters.convert_to_int,
                         'is_visible': True},
         'http_method': {'allow_post': True, 'allow_put': True,
                         'validate': {'type:string': None},
@@ -293,7 +296,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                            'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
