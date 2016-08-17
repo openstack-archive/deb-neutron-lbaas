@@ -1,0 +1,12 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+1: Miguel Angel Ajo <mangelajo@redhat.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Nir Magnezi <nmagnezi@redhat.com>
+Code-Review+2: Brandon Logan <brandon.logan@rackspace.com>
+Workflow+1: Brandon Logan <brandon.logan@rackspace.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 19 Jul 2016 16:23:01 +0000
+Reviewed-on: https://review.openstack.org/343496
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master

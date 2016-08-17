@@ -1,0 +1,10 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+2: Stephen Balukoff <stephen@balukoff.com>
+Code-Review+2: Adam Harwell <flux.adam@gmail.com>
+Workflow+1: Adam Harwell <flux.adam@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 21 Jul 2016 13:26:13 +0000
+Reviewed-on: https://review.openstack.org/343372
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
