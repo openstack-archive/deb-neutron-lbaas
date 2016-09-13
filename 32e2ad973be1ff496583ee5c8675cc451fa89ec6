@@ -1,0 +1,12 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Adam Harwell <flux.adam@gmail.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 26 Aug 2016 18:42:05 +0000
+Reviewed-on: https://review.openstack.org/354876
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/mitaka

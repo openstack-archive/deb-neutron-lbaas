@@ -1,0 +1,9 @@
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+1: Stephen Balukoff <stephen@balukoff.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 28 Jun 2016 09:37:32 +0000
+Reviewed-on: https://review.openstack.org/321563
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/mitaka
