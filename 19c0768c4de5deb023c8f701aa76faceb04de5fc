@@ -1,0 +1,12 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+1: Lubosz Kosnik (diltram) <lubosz.kosnik@intel.com>
+Code-Review+1: Stephen Balukoff <stephen@balukoff.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: garyk <gkotton@vmware.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 17 Jun 2016 17:14:04 +0000
+Reviewed-on: https://review.openstack.org/329973
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/liberty

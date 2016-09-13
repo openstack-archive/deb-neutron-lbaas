@@ -1,0 +1,13 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+2: Brian Haley <brian.haley@hpe.com>
+Code-Review+1: Brandon Logan <brandon.logan@rackspace.com>
+Code-Review+1: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Stephen Balukoff <stephen@balukoff.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Workflow+1: Doug Wiegley <dougwig@parkside.io>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 02 Aug 2016 23:00:16 +0000
+Reviewed-on: https://review.openstack.org/347054
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/liberty
