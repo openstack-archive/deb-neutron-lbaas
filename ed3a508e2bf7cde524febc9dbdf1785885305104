@@ -1,0 +1,10 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+2: Stephen Balukoff <stephen@balukoff.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 13 Aug 2016 05:49:45 +0000
+Reviewed-on: https://review.openstack.org/354614
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
