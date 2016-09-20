@@ -144,7 +144,6 @@ def _validate_connection_limit(data, min_value=lb_const.MIN_CONNECT_VALUE):
 
 validators.validators['type:connection_limit'] = _validate_connection_limit
 
-
 RESOURCE_ATTRIBUTE_MAP = {
     'loadbalancers': {
         'id': {'allow_post': False, 'allow_put': False,
@@ -378,8 +377,8 @@ SUB_RESOURCE_ATTRIBUTE_MAP = {
                               'is_visible': True},
             'weight': {'allow_post': True, 'allow_put': True,
                        'default': 1,
-                       'validate': {'type:range': [0, 256]},
-                       'convert_to': converters.convert_to_int,
+                       'validate': {'type:range': [0, 256],
+                                    'type:integer': None},
                        'is_visible': True},
             'admin_state_up': {'allow_post': True, 'allow_put': True,
                                'default': True,
