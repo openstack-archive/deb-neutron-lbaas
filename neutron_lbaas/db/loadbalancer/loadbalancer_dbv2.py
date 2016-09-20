@@ -18,6 +18,7 @@ import re
 from neutron.callbacks import events
 from neutron.callbacks import registry
 from neutron.callbacks import resources
+from neutron.db import api as db_api
 from neutron.db import common_db_mixin as base_db
 from neutron import manager
 from neutron.plugins.common import constants
@@ -30,6 +31,7 @@ from oslo_utils import uuidutils
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import orm
 from sqlalchemy.orm import exc
+from sqlalchemy.orm import lazyload
 
 from neutron_lbaas._i18n import _
 from neutron_lbaas import agent_scheduler
@@ -60,7 +62,12 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
         resource = None
         try:
             if for_update:
-                query = self._model_query(context, model).filter(
+                # To lock the instance for update, return a single
+                # instance, instead of an instance with LEFT OUTER
+                # JOINs that do not work in PostgreSQL
+                query = self._model_query(context, model).options(
+                    lazyload('*')
+                ).filter(
                     model.id == id).with_lockmode('update')
                 resource = query.one()
             else:
@@ -312,7 +319,11 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             lb_db = self._get_resource(context, models.LoadBalancer, id)
             context.session.delete(lb_db)
         if delete_vip_port and lb_db.vip_port:
-            self._core_plugin.delete_port(context, lb_db.vip_port_id)
+            self._delete_vip_port(context, lb_db.vip_port_id)
+
+    @db_api.retry_db_errors
+    def _delete_vip_port(self, context, vip_port_id):
+        self._core_plugin.delete_port(context, vip_port_id)
 
     def prevent_lbaasv2_port_deletion(self, context, port_id):
         try:
@@ -755,9 +766,6 @@ class LoadBalancerPluginDbv2(base_db.CommonDbMixin,
             listener_db = self._get_resource(
                 context, models.Listener, listener_id)
 
-            if not listener_db:
-                raise loadbalancerv2.EntityNotFound(
-                    name=models.Listener.NAME, id=listener_id)
             self._load_id(context, l7policy)
 
             l7policy['provisioning_status'] = constants.PENDING_CREATE
