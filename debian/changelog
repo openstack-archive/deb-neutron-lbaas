@@ -4,6 +4,7 @@ neutron-lbaas (1:9.0.0~b3-1) experimental; urgency=medium
   * Fixed (build-)depends for this release.
   * Using OpenStack's Gerrit as VCS URLs.
   * Rebased fix-requirements.txt.patch.
+  * Add --parallel when running unit tests.
   * Fix requirements.txt.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 20 Sep 2016 14:49:52 +0200
