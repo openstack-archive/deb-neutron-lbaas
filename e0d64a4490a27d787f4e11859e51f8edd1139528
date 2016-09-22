@@ -1,0 +1,13 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+1: Nir Magnezi <nmagnezi@redhat.com>
+Code-Review+1: Phillip Toohill <phillip.toohill@rackspace.com>
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+1: Daniel Mellado <dmellado@redhat.com>
+Code-Review+2: Stephen Balukoff <stephen@balukoff.com>
+Workflow+1: Stephen Balukoff <stephen@balukoff.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 21 Sep 2016 22:14:36 +0000
+Reviewed-on: https://review.openstack.org/317862
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
