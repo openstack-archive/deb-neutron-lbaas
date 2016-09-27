@@ -23,6 +23,7 @@ from oslo_utils import uuidutils
 from webob import exc
 
 from neutron_lbaas.extensions import healthmonitor_max_retries_down as hm_down
+from neutron_lbaas.extensions import lb_network_vip
 from neutron_lbaas.extensions import loadbalancerv2
 from neutron_lbaas.extensions import sharedpools
 from neutron_lbaas.tests import base
@@ -42,6 +43,8 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
             resource_map[k].update(sharedpools.EXTENDED_ATTRIBUTES_2_0[k])
         for k in hm_down.EXTENDED_ATTRIBUTES_2_0.keys():
             resource_map[k].update(hm_down.EXTENDED_ATTRIBUTES_2_0[k])
+        for k in lb_network_vip.EXTENDED_ATTRIBUTES_2_0.keys():
+            resource_map[k].update(lb_network_vip.EXTENDED_ATTRIBUTES_2_0[k])
         self._setUpExtension(
             'neutron_lbaas.extensions.loadbalancerv2.LoadBalancerPluginBaseV2',
             constants.LOADBALANCERV2, resource_map,
@@ -49,9 +52,11 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
 
     def test_loadbalancer_create(self):
         lb_id = _uuid()
+        project_id = _uuid()
         data = {'loadbalancer': {'name': 'lb1',
                                  'description': 'descr_lb1',
-                                 'tenant_id': _uuid(),
+                                 'tenant_id': project_id,
+                                 'project_id': project_id,
                                  'vip_subnet_id': _uuid(),
                                  'admin_state_up': True,
                                  'vip_address': '127.0.0.1'}}
@@ -66,7 +71,41 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
                             content_type='application/{0}'.format(self.fmt))
         data['loadbalancer'].update({
             'provider': n_constants.ATTR_NOT_SPECIFIED,
-            'flavor_id': n_constants.ATTR_NOT_SPECIFIED})
+            'flavor_id': n_constants.ATTR_NOT_SPECIFIED,
+            'vip_network_id': n_constants.ATTR_NOT_SPECIFIED})
+        instance.create_loadbalancer.assert_called_with(mock.ANY,
+                                                        loadbalancer=data)
+
+        self.assertEqual(exc.HTTPCreated.code, res.status_int)
+        res = self.deserialize(res)
+        self.assertIn('loadbalancer', res)
+        self.assertEqual(return_value, res['loadbalancer'])
+
+    def test_loadbalancer_create_with_vip_network_id(self):
+        lb_id = _uuid()
+        project_id = _uuid()
+        vip_subnet_id = _uuid()
+        data = {'loadbalancer': {'name': 'lb1',
+                                 'description': 'descr_lb1',
+                                 'tenant_id': project_id,
+                                 'project_id': project_id,
+                                 'vip_network_id': _uuid(),
+                                 'admin_state_up': True,
+                                 'vip_address': '127.0.0.1'}}
+        return_value = copy.copy(data['loadbalancer'])
+        return_value.update({'id': lb_id, 'vip_subnet_id': vip_subnet_id})
+        del return_value['vip_network_id']
+
+        instance = self.plugin.return_value
+        instance.create_loadbalancer.return_value = return_value
+
+        res = self.api.post(_get_path('lbaas/loadbalancers', fmt=self.fmt),
+                            self.serialize(data),
+                            content_type='application/{0}'.format(self.fmt))
+        data['loadbalancer'].update({
+            'provider': n_constants.ATTR_NOT_SPECIFIED,
+            'flavor_id': n_constants.ATTR_NOT_SPECIFIED,
+            'vip_subnet_id': n_constants.ATTR_NOT_SPECIFIED})
         instance.create_loadbalancer.assert_called_with(mock.ANY,
                                                         loadbalancer=data)
 
@@ -76,9 +115,11 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         self.assertEqual(return_value, res['loadbalancer'])
 
     def test_loadbalancer_create_invalid_flavor(self):
+        project_id = _uuid()
         data = {'loadbalancer': {'name': 'lb1',
                                  'description': 'descr_lb1',
-                                 'tenant_id': _uuid(),
+                                 'tenant_id': project_id,
+                                 'project_id': project_id,
                                  'vip_subnet_id': _uuid(),
                                  'admin_state_up': True,
                                  'flavor_id': 123,
@@ -90,9 +131,11 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         self.assertEqual(400, res.status_int)
 
     def test_loadbalancer_create_valid_flavor(self):
+        project_id = _uuid()
         data = {'loadbalancer': {'name': 'lb1',
                                  'description': 'descr_lb1',
-                                 'tenant_id': _uuid(),
+                                 'tenant_id': project_id,
+                                 'project_id': project_id,
                                  'vip_subnet_id': _uuid(),
                                  'admin_state_up': True,
                                  'flavor_id': _uuid(),
@@ -107,7 +150,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         lb_id = _uuid()
         return_value = [{'name': 'lb1',
                          'admin_state_up': True,
-                         'tenant_id': _uuid(),
+                         'project_id': _uuid(),
                          'id': lb_id}]
 
         instance = self.plugin.return_value
@@ -125,7 +168,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         update_data = {'loadbalancer': {'admin_state_up': False}}
         return_value = {'name': 'lb1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': lb_id}
 
         instance = self.plugin.return_value
@@ -147,7 +190,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         lb_id = _uuid()
         return_value = {'name': 'lb1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': lb_id}
 
         instance = self.plugin.return_value
@@ -169,7 +212,9 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
 
     def test_listener_create(self):
         listener_id = _uuid()
-        data = {'listener': {'tenant_id': _uuid(),
+        project_id = _uuid()
+        data = {'listener': {'tenant_id': project_id,
+                             'project_id': project_id,
                              'name': 'listen-name-1',
                              'description': 'listen-1-desc',
                              'protocol': 'HTTP',
@@ -200,10 +245,12 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
 
     def test_listener_create_with_tls(self):
         listener_id = _uuid()
+        project_id = _uuid()
         tls_ref = 'http://example.ref/uuid'
         sni_refs = ['http://example.ref/uuid',
                     'http://example.ref/uuid1']
-        data = {'listener': {'tenant_id': _uuid(),
+        data = {'listener': {'tenant_id': project_id,
+                             'project_id': project_id,
                              'name': 'listen-name-1',
                              'description': 'listen-1-desc',
                              'protocol': 'HTTP',
@@ -233,7 +280,9 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         self.assertEqual(res['listener'], return_value)
 
     def test_listener_create_with_connection_limit_less_than_min_value(self):
-        data = {'listener': {'tenant_id': _uuid(),
+        project_id = _uuid()
+        data = {'listener': {'tenant_id': project_id,
+                             'project_id': project_id,
                              'name': 'listen-name-1',
                              'description': 'listen-1-desc',
                              'protocol': 'HTTP',
@@ -253,7 +302,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
     def test_listener_list(self):
         listener_id = _uuid()
         return_value = [{'admin_state_up': True,
-                         'tenant_id': _uuid(),
+                         'project_id': _uuid(),
                          'id': listener_id}]
 
         instance = self.plugin.return_value
@@ -271,7 +320,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         update_data = {'listener': {'admin_state_up': False}}
         return_value = {'name': 'listener1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': listener_id}
 
         instance = self.plugin.return_value
@@ -297,7 +346,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         update_data = {'listener': {'admin_state_up': False}}
         return_value = {'name': 'listener1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': listener_id,
                         'default_tls_container_ref': tls_ref,
                         'sni_container_refs': sni_refs}
@@ -331,7 +380,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         listener_id = _uuid()
         return_value = {'name': 'listener1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': listener_id}
 
         instance = self.plugin.return_value
@@ -353,6 +402,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
 
     def test_pool_create(self):
         pool_id = _uuid()
+        project_id = _uuid()
         data = {'pool': {'name': 'pool1',
                          'description': 'descr_pool1',
                          'protocol': 'HTTP',
@@ -360,7 +410,8 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
                          'admin_state_up': True,
                          'loadbalancer_id': _uuid(),
                          'listener_id': None,
-                         'tenant_id': _uuid(),
+                         'tenant_id': project_id,
+                         'project_id': project_id,
                          'session_persistence': {}}}
         return_value = copy.copy(data['pool'])
         return_value.update({'id': pool_id})
@@ -381,7 +432,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         pool_id = _uuid()
         return_value = [{'name': 'pool1',
                          'admin_state_up': True,
-                         'tenant_id': _uuid(),
+                         'project_id': _uuid(),
                          'id': pool_id}]
 
         instance = self.plugin.return_value
@@ -398,7 +449,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         update_data = {'pool': {'admin_state_up': False}}
         return_value = {'name': 'pool1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': pool_id}
 
         instance = self.plugin.return_value
@@ -419,7 +470,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         pool_id = _uuid()
         return_value = {'name': 'pool1',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': pool_id}
 
         instance = self.plugin.return_value
@@ -441,12 +492,14 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
     def test_pool_member_create(self):
         subnet_id = _uuid()
         member_id = _uuid()
+        project_id = _uuid()
         data = {'member': {'address': '10.0.0.1',
                            'protocol_port': 80,
                            'weight': 1,
                            'subnet_id': subnet_id,
                            'admin_state_up': True,
-                           'tenant_id': _uuid(),
+                           'tenant_id': project_id,
+                           'project_id': project_id,
                            'name': 'member1'}}
         return_value = copy.copy(data['member'])
         return_value.update({'id': member_id})
@@ -470,7 +523,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         member_id = _uuid()
         return_value = [{'name': 'member1',
                          'admin_state_up': True,
-                         'tenant_id': _uuid(),
+                         'project_id': _uuid(),
                          'id': member_id,
                          'name': 'member1'}]
 
@@ -490,7 +543,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         member_id = _uuid()
         update_data = {'member': {'admin_state_up': False}}
         return_value = {'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': member_id,
                         'name': 'member1'}
 
@@ -513,7 +566,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
     def test_pool_member_get(self):
         member_id = _uuid()
         return_value = {'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': member_id,
                         'name': 'member1'}
 
@@ -545,6 +598,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
 
     def test_health_monitor_create(self):
         health_monitor_id = _uuid()
+        project_id = _uuid()
         data = {'healthmonitor': {'type': 'HTTP',
                                   'delay': 2,
                                   'timeout': 1,
@@ -554,7 +608,8 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
                                   'url_path': '/path',
                                   'expected_codes': '200-300',
                                   'admin_state_up': True,
-                                  'tenant_id': _uuid(),
+                                  'tenant_id': project_id,
+                                  'project_id': project_id,
                                   'pool_id': _uuid(),
                                   'name': 'monitor1'}}
         return_value = copy.copy(data['healthmonitor'])
@@ -575,6 +630,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         self.assertEqual(return_value, res['healthmonitor'])
 
     def test_health_monitor_create_with_timeout_negative(self):
+        project_id = _uuid()
         data = {'healthmonitor': {'type': 'HTTP',
                                   'delay': 2,
                                   'timeout': -1,
@@ -583,7 +639,8 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
                                   'url_path': '/path',
                                   'expected_codes': '200-300',
                                   'admin_state_up': True,
-                                  'tenant_id': _uuid(),
+                                  'tenant_id': project_id,
+                                  'project_id': project_id,
                                   'pool_id': _uuid(),
                                   'name': 'monitor1'}}
         res = self.api.post(_get_path('lbaas/healthmonitors',
@@ -597,7 +654,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         health_monitor_id = _uuid()
         return_value = [{'type': 'HTTP',
                          'admin_state_up': True,
-                         'tenant_id': _uuid(),
+                         'project_id': _uuid(),
                          'id': health_monitor_id,
                          'name': 'monitor1'}]
 
@@ -615,7 +672,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         update_data = {'healthmonitor': {'admin_state_up': False}}
         return_value = {'type': 'HTTP',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': health_monitor_id,
                         'name': 'monitor1'}
 
@@ -638,7 +695,7 @@ class TestLoadBalancerExtensionV2TestCase(base.ExtensionTestCase):
         health_monitor_id = _uuid()
         return_value = {'type': 'HTTP',
                         'admin_state_up': False,
-                        'tenant_id': _uuid(),
+                        'project_id': _uuid(),
                         'id': health_monitor_id,
                         'name': 'monitor1'}
 

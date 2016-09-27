@@ -1,4 +1,4 @@
-neutron-lbaas (1:9.0.0~b3-1) experimental; urgency=medium
+neutron-lbaas (1:9.0.0~rc1-1) experimental; urgency=medium
 
   * New upstream release.
   * Fixed (build-)depends for this release.
@@ -6,6 +6,7 @@ neutron-lbaas (1:9.0.0~b3-1) experimental; urgency=medium
   * Rebased fix-requirements.txt.patch.
   * Add --parallel when running unit tests.
   * Fix requirements.txt.
+  * d/s/options: extend-diff-ignore of .gitreview and egg-info.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 20 Sep 2016 14:49:52 +0200
 
