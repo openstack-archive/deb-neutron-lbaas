@@ -7,6 +7,7 @@ neutron-lbaas (1:9.0.0~rc1-1) experimental; urgency=medium
   * Add --parallel when running unit tests.
   * Fix requirements.txt.
   * d/s/options: extend-diff-ignore of .gitreview and egg-info.
+  * Fixed oslotest EPOCH.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 20 Sep 2016 14:49:52 +0200
 
