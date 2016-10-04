@@ -1,7 +1,8 @@
-neutron-lbaas (1:9.0.0~rc1-1) experimental; urgency=medium
+neutron-lbaas (1:9.0.0~rc1-1) unstable; urgency=medium
 
   * New upstream release.
-  * Uploading to unstable.
+  * Uploading to unstable (Closes: #835137).
+  * Also package the .j2 templates (Closes: #835249).
   * Fixed (build-)depends for this release.
   * Using OpenStack's Gerrit as VCS URLs.
   * Rebased fix-requirements.txt.patch.

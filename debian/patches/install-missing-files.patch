@@ -1,0 +1,17 @@
+Description: Install missing files
+ PBR is missing the .j2 files in neutron_lbaas/drivers
+Author: Thomas Goirand <zigo@debian.org>
+Bug-Debian: https://bugs.debian.org/835249
+Forwarded: no
+Last-Update: 2016-10-04
+
+--- neutron-lbaas-9.0.0~rc1.orig/MANIFEST.in
++++ neutron-lbaas-9.0.0~rc1/MANIFEST.in
+@@ -4,6 +4,7 @@ include ChangeLog
+ include LICENSE
+ include neutron_lbaas/db/migration/alembic_migrations/script.py.mako
+ recursive-include neutron_lbaas/db/migration/alembic_migrations/versions *
++recursive-include neutron_lbaas/drivers *
+ 
+ exclude .gitignore
+ exclude .gitreview
