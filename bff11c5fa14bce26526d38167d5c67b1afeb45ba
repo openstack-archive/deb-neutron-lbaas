@@ -1,0 +1,9 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+2: garyk <gkotton@vmware.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 07 Oct 2016 14:24:32 +0000
+Reviewed-on: https://review.openstack.org/382761
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/newton
