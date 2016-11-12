@@ -1,0 +1,11 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+1: Darek Smigiel <smigiel.dariusz@gmail.com>
+Code-Review+2: Brandon Logan <brandon.logan@rackspace.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 11 Nov 2016 23:53:01 +0000
+Reviewed-on: https://review.openstack.org/389060
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
