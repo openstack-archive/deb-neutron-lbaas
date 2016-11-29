@@ -1,0 +1,12 @@
+Verified+1: A10 Networks CI <a10-openstack-ci@a10networks.com>
+Code-Review+1: Reedip <reedip.banerjee@nectechnologies.in>
+Code-Review+1: venkatamahesh <Venkata.Kotha@infinite.com>
+Code-Review+2: Michael Johnson <johnsomor@gmail.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 28 Nov 2016 23:01:27 +0000
+Reviewed-on: https://review.openstack.org/403268
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
