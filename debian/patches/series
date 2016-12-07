@@ -1,2 +1,3 @@
 fix-requirements.txt.patch
 install-missing-files.patch
+allow-sqla-1.1.patch
