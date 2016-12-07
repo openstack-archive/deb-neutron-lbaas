@@ -1,3 +1,9 @@
+neutron-lbaas (1:9.1.0-2) unstable; urgency=medium
+
+  * Patch requirements to allow SQLAlchemy 1.1.x.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 07 Dec 2016 11:54:07 +0100
+
 neutron-lbaas (1:9.1.0-1) unstable; urgency=medium
 
   [ Ondřej Nový ]
