@@ -1,0 +1,9 @@
+Code-Review+2: Lubosz Kosnik (diltram) <lubosz.kosnik@intel.com>
+Code-Review+2: Adam Harwell <flux.adam@gmail.com>
+Workflow+1: Adam Harwell <flux.adam@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 04 Jan 2017 21:57:00 +0000
+Reviewed-on: https://review.openstack.org/406033
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
