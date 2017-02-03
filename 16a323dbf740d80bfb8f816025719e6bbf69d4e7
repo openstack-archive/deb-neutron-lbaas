@@ -1,0 +1,9 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Michael Johnson <johnsomor@gmail.com>
+Workflow+1: Michael Johnson <johnsomor@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 03 Feb 2017 00:27:09 +0000
+Reviewed-on: https://review.openstack.org/426209
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/newton
