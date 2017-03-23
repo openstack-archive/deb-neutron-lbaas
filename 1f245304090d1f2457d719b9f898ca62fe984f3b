@@ -1,0 +1,9 @@
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Workflow+1: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 13 Mar 2017 20:19:36 +0000
+Reviewed-on: https://review.openstack.org/442486
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/stable/ocata
