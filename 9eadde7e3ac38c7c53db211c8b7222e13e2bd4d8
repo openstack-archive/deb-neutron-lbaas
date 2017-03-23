@@ -1,0 +1,10 @@
+Code-Review+2: Lubosz Kosnik (diltram) <lubosz.kosnik@intel.com>
+Code-Review+1: Ken'ichi Ohmichi <ken1ohmichi@gmail.com>
+Code-Review+2: Michael Johnson <johnsomor@gmail.com>
+Workflow+1: Michael Johnson <johnsomor@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 06 Mar 2017 04:30:49 +0000
+Reviewed-on: https://review.openstack.org/435263
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
