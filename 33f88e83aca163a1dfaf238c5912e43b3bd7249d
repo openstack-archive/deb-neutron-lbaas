@@ -1,0 +1,12 @@
+Code-Review+2: garyk <gkotton@vmware.com>
+Code-Review+1: Kobi Samoray <ksamoray@vmware.com>
+Code-Review+2: German Eichberger <German.eichberger@rackspace.com>
+Code-Review+1: Shih-Hao Li <shihli@vmware.com>
+Code-Review+2: Adam Harwell <flux.adam@gmail.com>
+Workflow+1: Adam Harwell <flux.adam@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 24 May 2017 02:20:10 +0000
+Reviewed-on: https://review.openstack.org/466820
+Project: openstack/deb-neutron-lbaas
+Branch: refs/heads/master
